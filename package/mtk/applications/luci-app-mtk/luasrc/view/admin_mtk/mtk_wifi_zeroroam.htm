@@ -1,0 +1,258 @@
+<%+header%>
+<h2>ZeroRoam Configuration</h2>
+<div style="margin-bottom:20px;">
+    <b>note:</b> Please make sure the master BSS is configured successfully before starting zero roaming.
+</div>
+<style>
+    .zr-tab-content { display: none; }
+    .zr-tab-content.active { display: block !important; }
+    .cbi-tabmenu { margin-bottom: 20px; }
+</style>
+
+<ul class="cbi-tabmenu">
+    <li class="cbi-tab" id="tab_li_basic"><a href="javascript:void(0)" onclick="switchTab('basic')">basic</a></li>
+    <li class="cbi-tab-disabled" id="tab_li_advance"><a href="javascript:void(0)" onclick="switchTab('advance')">advance</a></li>
+    <li class="cbi-tab-disabled" id="tab_li_debug"><a href="javascript:void(0)" onclick="switchTab('debug')">debug</a></li>
+</ul>
+
+<form id="zeroRoamForm" style="max-width:600px;">
+    <div id="tab_basic" class="zr-tab-content active">
+        <div style="margin-bottom:15px;">
+            <label for="role" style="display:inline-block;width:220px;">role:</label>
+        <select name="role" id="role">
+            <option value="0" <% if tostring(role) == "0" or not role then %>selected="selected"<% end %>>root</option>
+            <option value="1" <% if tostring(role) == "1" then %>selected="selected"<% end %>>extender</option>
+        </select>
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <label for="almac" style="display:inline-block;width:220px;vertical-align:top;">ALMAC:</label>
+        <div style="display:inline-block;">
+            <input type="text" name="almac" id="almac" value="<%= almac or '00:0c:43:ee:88:99' %>" style="width:250px;">
+            <div style="margin-top:5px;color:#666;font-size:12px;">Must be unique for each device</div>
+        </div>
+    </div>
+    </div> <!-- end tab_basic -->
+
+    <div id="tab_advance" class="zr-tab-content">
+        <div style="margin-bottom:15px;color:#c00;font-size:13px;">
+            <b>Note:</b> After changing settings on this page, you need to go back to the basic page and click apply to restart roam_app for changes to take effect.
+        </div>
+        <div style="margin-bottom:15px;">
+            <label style="display:inline-block;width:220px;">cert:</label>
+        <label style="margin-right:15px;">
+            <input type="radio" name="cert" value="1" <% if tostring(cert) == "1" or not cert then %>checked="checked"<% end %>> enable
+        </label>
+        <label>
+            <input type="radio" name="cert" value="0" <% if tostring(cert) == "0" then %>checked="checked"<% end %>> disable
+        </label>
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <label for="zr_intf_2g" style="display:inline-block;width:220px;">2.4G ZeroRoam interface name:</label>
+        <input type="text" name="zr_intf_2g" id="zr_intf_2g" value="<%= zr_intf_2g or '' %>" style="width:250px;">
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <label for="zr_intf_5g" style="display:inline-block;width:220px;">5G ZeroRoam interface name:</label>
+        <input type="text" name="zr_intf_5g" id="zr_intf_5g" value="<%= zr_intf_5g or '' %>" style="width:250px;">
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <label for="m_intf_2g" style="display:inline-block;width:220px;">2.4G master interface name:</label>
+        <input type="text" name="m_intf_2g" id="m_intf_2g" value="<%= m_intf_2g or '' %>" style="width:250px;">
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <label for="m_intf_5g" style="display:inline-block;width:220px;">5G master interface name:</label>
+        <input type="text" name="m_intf_5g" id="m_intf_5g" value="<%= m_intf_5g or '' %>" style="width:250px;">
+    </div>
+
+    <div style="margin-bottom:15px;">
+        <label for="zr_bssid_base" style="display:inline-block;width:220px;vertical-align:top;">zr_bssid_base:</label>
+        <div style="display:inline-block;">
+            <input type="text" name="zr_bssid_base" id="zr_bssid_base" value="<%= zr_bssid_base or '00:0c:43:22:22:22' %>" style="width:250px;">
+            <div style="margin-top:5px;color:#666;font-size:12px;">Must be unique for multiple ZeroRoam devices</div>
+        </div>
+    </div>
+    </div> <!-- end tab_advance -->
+
+    <div id="tab_debug" class="zr-tab-content">
+        <div style="margin-bottom:15px;">
+            <button type="button" class="cbi-button cbi-button-apply" onclick="execDebugCmd('roam_cli dev dump_topology_info 0', true)">dump all topo</button>
+            <button type="button" class="cbi-button cbi-button-apply" onclick="execDebugCmd('roam_cli dev dump_topology_info 1', true)">dump own topo</button>
+            <button type="button" class="cbi-button cbi-button-apply" onclick="execDebugCmd('roam_cli dev dump_config_info', true)">dump own cfg</button>
+        </div>
+        <pre id="debug_output" style="background:#f4f4f4; padding:10px; border:1px solid #ccc; margin-top:10px; min-height:100px; display:none; overflow-x:auto;"></pre>
+    </div> <!-- end tab_debug -->
+
+    <div style="margin-top:20px;">
+        <button type="submit" name="apply" class="cbi-button cbi-button-apply" id="applyBtn">apply</button>
+        <button type="button" class="cbi-button cbi-button-apply" id="updateFileBtn" style="display:none;" onclick="updateFileOnly()">update file</button>
+    </div>
+</form>
+
+<div id="loading_div" style="display:none;">Applying, please wait...</div>
+<script>
+function switchTab(tabId) {
+    localStorage.setItem('zeroroam_tab', tabId);
+    document.getElementById('tab_basic').classList.remove('active');
+    document.getElementById('tab_advance').classList.remove('active');
+    document.getElementById('tab_debug').classList.remove('active');
+    document.getElementById('tab_li_basic').className = 'cbi-tab-disabled';
+    document.getElementById('tab_li_advance').className = 'cbi-tab-disabled';
+    document.getElementById('tab_li_debug').className = 'cbi-tab-disabled';
+
+    document.getElementById('tab_' + tabId).classList.add('active');
+    document.getElementById('tab_li_' + tabId).className = 'cbi-tab';
+    document.getElementById('applyBtn').style.display = (tabId === 'basic') ? '' : 'none';
+    document.getElementById('updateFileBtn').style.display = (tabId === 'advance') ? '' : 'none';
+}
+
+function execDebugCmd(cmd, toConsole) {
+    var output = document.getElementById('debug_output');
+    output.style.display = 'block';
+    output.innerHTML = 'Executing...';
+    var xhr = new XMLHttpRequest();
+    var params = "cmd=" + encodeURIComponent(cmd);
+    if (toConsole) {
+        params += "&to_console=1";
+    }
+    xhr.open("POST", '<%=luci.dispatcher.build_url("admin", "mtk", "webcmd")%>', true);
+    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+                output.innerHTML = xhr.responseText || 'Command executed (no output).';
+            } else {
+                output.innerHTML = 'Error executing command.';
+            }
+        }
+    };
+    xhr.send(params);
+}
+
+var debounceFlag = false;
+document.getElementById('zeroRoamForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    // Validation
+    var fields = [
+        {id: 'almac', name: 'ALMAC'},
+        {id: 'zr_intf_2g', name: '2.4G ZeroRoam interface name'},
+        {id: 'zr_intf_5g', name: '5G ZeroRoam interface name'},
+        {id: 'm_intf_2g', name: '2.4G master interface name'},
+        {id: 'm_intf_5g', name: '5G master interface name'},
+        {id: 'zr_bssid_base', name: 'zr_bssid_base'}
+    ];
+
+    // Check if all fields are filled
+    for (var i = 0; i < fields.length; i++) {
+        var value = document.getElementById(fields[i].id).value.trim();
+        if (value === '') {
+            alert('Please fill in all fields: ' + fields[i].name + ' cannot be empty');
+            return false;
+        }
+    }
+
+    // Validate MAC address format for almac
+    var macPattern = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+    var almacValue = document.getElementById('almac').value.trim();
+    if (!macPattern.test(almacValue)) {
+        alert('Invalid MAC address format: ALMAC must match format XX:XX:XX:XX:XX:XX (X is hexadecimal digit)');
+        return false;
+    }
+
+    // Validate MAC address format for zr_bssid_base
+    var bssidValue = document.getElementById('zr_bssid_base').value.trim();
+    if (!macPattern.test(bssidValue)) {
+        alert('Invalid MAC address format: zr_bssid_base must match format XX:XX:XX:XX:XX:XX (X is hexadecimal digit)');
+        return false;
+    }
+
+    if (debounceFlag) {
+        return false;
+    }
+    debounceFlag = true;
+    document.getElementById('applyBtn').disabled = true;
+    document.getElementById('loading_div').style.display = 'block';
+    var xhr = new XMLHttpRequest();
+    var cert = document.querySelector('input[name="cert"]:checked').value;
+    var params = "role=" + encodeURIComponent(document.getElementById('role').value) +
+                 "&cert=" + encodeURIComponent(cert) +
+                 "&almac=" + encodeURIComponent(document.getElementById('almac').value) +
+                 "&zr_intf_2g=" + encodeURIComponent(document.getElementById('zr_intf_2g').value) +
+                 "&zr_intf_5g=" + encodeURIComponent(document.getElementById('zr_intf_5g').value) +
+                 "&m_intf_2g=" + encodeURIComponent(document.getElementById('m_intf_2g').value) +
+                 "&m_intf_5g=" + encodeURIComponent(document.getElementById('m_intf_5g').value) +
+                 "&zr_bssid_base=" + encodeURIComponent(document.getElementById('zr_bssid_base').value);
+
+    xhr.open("POST", window.location.pathname, true);
+    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+            var doWait = false;
+            try {
+                var res = JSON.parse(xhr.responseText);
+                if (res && res.status === "wait") {
+                    doWait = true;
+                }
+            } catch(e) {}
+
+            if (doWait) {
+                alert('Please make sure the all mesh master BSSes are configured successfully before starting zero roaming.');
+                debounceFlag = false;
+                document.getElementById('applyBtn').disabled = false;
+                document.getElementById('loading_div').style.display = 'none';
+            } else {
+                try {
+                    var res = JSON.parse(xhr.responseText);
+                    if (res && res.status === "success" && res.redirect_url) {
+                        window.location.href = res.redirect_url;
+                        return;
+                    }
+                } catch(e) {}
+
+                setTimeout(function() {
+                    debounceFlag = false;
+                    document.getElementById('applyBtn').disabled = false;
+                    document.getElementById('loading_div').style.display = 'none';
+                }, 2000);
+            }
+        }
+    };
+    xhr.send(params);
+});
+
+function updateFileOnly() {
+    var btn = document.getElementById('updateFileBtn');
+    btn.disabled = true;
+    var xhr = new XMLHttpRequest();
+    var params = "action=update_file" +
+                 "&cert=" + encodeURIComponent(document.querySelector('input[name="cert"]:checked').value) +
+                 "&zr_intf_2g=" + encodeURIComponent(document.getElementById('zr_intf_2g').value) +
+                 "&zr_intf_5g=" + encodeURIComponent(document.getElementById('zr_intf_5g').value) +
+                 "&m_intf_2g=" + encodeURIComponent(document.getElementById('m_intf_2g').value) +
+                 "&m_intf_5g=" + encodeURIComponent(document.getElementById('m_intf_5g').value) +
+                 "&zr_bssid_base=" + encodeURIComponent(document.getElementById('zr_bssid_base').value);
+    xhr.open("POST", window.location.pathname, true);
+    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+            btn.disabled = false;
+            if (xhr.status === 200) {
+                alert('File updated successfully.');
+            } else {
+                alert('Update failed.');
+            }
+        }
+    };
+    xhr.send(params);
+}
+
+var savedTab = localStorage.getItem('zeroroam_tab');
+if (savedTab) {
+    switchTab(savedTab);
+}
+</script>
+<%+footer%>

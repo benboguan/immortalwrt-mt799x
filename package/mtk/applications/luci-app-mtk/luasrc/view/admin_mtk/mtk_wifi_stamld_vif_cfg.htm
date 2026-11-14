@@ -1,0 +1,574 @@
+<%+header%>
+<!--
+    This module is a demo to configure MTK' proprietary WiFi driver.
+    Basic idea is to bypass uci and edit wireless profile (mt76xx.dat) directly.
+    LuCI's WiFi configuration is more logical and elegent, but it's quite tricky to
+    translate uci into MTK's WiFi profile (like we did in "uci2dat").
+
+    Hua Shao <nossiac@163.com>
+    uci changes wireless | grep apcli0
+-->
+<%
+local ctrl_mtkwifi = require("luci.controller.mtkwifi")
+local uciutil = require "luci.util"
+local http = require "luci.http"
+local disp = require "luci.dispatcher"
+local path  = disp.context.path
+local request = disp.context.request
+local uci = require("uci").cursor()
+local devnames = nil
+local vifname = nil
+local devnames_table={}
+local diff = ctrl_mtkwifi.cfg_is_changed()
+local selected_devices = {}
+
+
+if request[4] == "vif_stamld_add" then
+   devnames = request[5]
+    for dev in string.gmatch(devnames, '([^,]+)') do
+        table.insert(devnames_table, dev)
+    end
+    new_iface=ctrl_mtkwifi.new_iface(devnames_table,"sta")
+    vifname = new_iface.ifname
+elseif request[4] == "vif_stamld_cfg" then
+    devnames = request[5]
+    vifname = request[6]
+end
+
+local vif=ctrl_mtkwifi.get_iface_config(vifname)
+if vif and vif["device"] then
+    if type(vif["device"]) == "table" then
+        for _, dev in ipairs(vif["device"]) do
+            table.insert(selected_devices, tostring(dev))
+        end
+    else
+        table.insert(selected_devices, tostring(vif["device"]))
+    end
+end
+
+if not vif then
+    vif = setmetatable({}, {
+        __index = function(_, k)
+            return ""
+        end
+    })
+end
+local ApCliAuthModeList=ctrl_mtkwifi.get_supported_auth_modes(vif["mrsno_enable"])
+local authmode,encrypttype = ctrl_mtkwifi.get_iface_auth(vif)
+local if_exists = ctrl_mtkwifi.is_interface_present(vifname)
+%>
+
+<style>
+
+.tab-disabled {
+        cursor: not-allowed;
+        pointer-events: none;
+        background: #f6f6f6;
+}
+
+#disable-txt {
+        color: red;
+        display: inline-flex;
+        height: 35px;
+        align-items: center;
+}
+
+</style>
+
+<script src="/luci-static/resources/monCon.js"></script>
+<script type="text/javascript" src="<%=resource%>/cbi.js?v=git-17.250.41546-90ac861"></script>
+<script type="text/javascript">
+
+var intervalId = "";
+var waiting_count = 0;
+var wps_status_interval = 1500;
+function hi(to, devname, vifname)
+{
+    var a;
+    var x;
+    var tables = new Array();
+    tables.push("vif-cfg-apcli");
+    tables.push("vif-cfg-apcli-config");
+    tables.push("apcli_form_buttons");
+
+    var tabs = new Array();
+    tabs.push("vif-cfg-tab-apcli");
+    tabs.push("vif-cfg-tab-WPS");
+
+    document.getElementById("__activeTab").value = to;
+    for (x in tables)
+    {
+        a = document.getElementById(tables[x]);
+        if (tables[x].indexOf(to) == -1)
+        {
+            a.style.display = "none";
+        }
+        else
+        {
+            a.style.display = "";
+        }
+    }
+    for (y in tabs)
+    {
+        a = document.getElementById(tabs[y]);
+        if(tabs[y].indexOf(to) == -1)
+        {
+            a.className = "cbi-tab-disabled";
+        }
+        else
+        {
+            a.className = "cbi-tab";
+        }
+    }
+}
+
+</script>
+
+<div class="alert-message" id="BusyText_ApCli" style="display:none;">
+    <img src="<%=resource%>/icons/loading.svg" onerror="this.onerror=null;this.src='<%=resource%>/icons/loading.gif';"  alt="<%:Loading%>" style="vertical-align:middle;" />
+    <big><strong>Please wait while the request is being processed.</strong></big>
+</div>
+<div id="apcli_body_div">
+    <form method="post" name="cbi"action="<%=luci.dispatcher.build_url('admin', 'mtk', 'wifi', 'vif_stamld_cfg_apply', devnames, vifname)%>"enctype="multipart/form-data"onreset="return cbi_validate_reset(this);"autocomplete="off">
+        <input type="hidden" name="__action" value="<%=request[4]%>">
+        <input type="hidden" name="vifname" value="<%=vifname%>">
+        <input type="hidden" name="devnames" value="<%=devnames%>">
+        <input type="hidden" name="encryption" value="<%=encryption or vif["encryption"]%>">
+        <input type="hidden" name="network" value="lan">
+        <fieldset class="cbi-section">
+            <p style="display: none;" id="vifname" ><%=vifname%></p>
+            <legend>Station Configurations - <%=vifname and devnames.."@"..vifname or devnames%>
+                <% if diff then %>
+                    <span style="color:red;">( <a href="javascript:location.href='<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "wifi_reload", devnames)%>'">Click here</a> to apply changes)</span>
+                <%end%>
+            </legend>
+            <div class="alert-message" id="EASYMESH_WARNING_MSG" style="display:none;">
+                <strong>WARNING: EasyMesh feature is enabled!</strong>
+            </div>
+            <ul class="cbi-tabmenu">
+                <li class="cbi-tab" id="vif-cfg-tab-apcli">
+                    <a href="javascript:hi('apcli', <%="'"..devnames.."', '"..vifname.."'"%>);this.blur(); ">AP Client</a>
+                </li>
+                <span id="disable-txt"></span>
+            </ul>
+            <input type="hidden" name="mode" id="mode" value="sta">
+            <% if request[4] == "vif_stamld_cfg" and if_exists then %>
+                <fieldset class="cbi-section" id="vif-cfg-apcli">
+                    <legend>
+                        <a id="apcli_scan_hdr">
+                            Available Wireless Networks
+                        </a>
+                    </legend>
+                    <p class="left">
+                        <input id="scan" type="button" class="cbi-button cbi-button-find" onclick="get_ap_list('<%=vifname%>')" value="Scan Wireless Network"/>
+                    </p>
+                    <div id="aplist">
+                    </div>
+                </fieldset>
+            <%end%>
+            <fieldset class="cbi-section" id="vif-cfg-apcli-config">
+                <legend> <a name="apcli_cfg_section">Connection Configurations</a> </legend>
+                <table class="cbi-section-table">
+                    <% if request[4] ~= "vif_stamld_cfg" then %>
+                    <tr>
+                        <td style="vertical-align:top;">
+                            Mode<span style="color:red">*</span>
+                        </td>
+                        <td>
+                            <label>
+                                <input type="radio" value="ap" onclick="onStaModeSelected()" />
+                                ap
+                            </label>
+                            <label>
+                                <input type="radio" value="sta" checked="checked" />
+                                sta
+                            </label>
+                        </td>
+                        <td style="vertical-align:top; color:#888;">
+                            Select mode. Automatically redirect when switching to ap.
+                        </td>
+                    </tr>
+                    <%end%>
+                    <tr>
+                        <td style="vertical-align:top;">
+                            Links<span style="color:red">*</span>
+                        </td>
+                        <td>
+                            <div id="iface_list"></div>
+                        </td>
+                        <td style="vertical-align:top; color:#888;">
+                            An iface can only join one mldgroup<br>
+                            Cannot select disabled intf
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Setup link</td>
+                        <td>
+                            <select name="mld_connect_band_pref">
+                                <option value="AUTO" <% if vif["mld_connect_band_pref"] == "AUTO" then %>selected="selected"<% end %>>AUTO</option>
+                                <option value="2.4G" <% if vif["mld_connect_band_pref"] == "2.4G" then %>selected="selected"<% end %>>2.4G</option>
+                                <option value="5G" <% if vif["mld_connect_band_pref"] == "5G" then %>selected="selected"<% end %>>5G</option>
+                                <option value="6G" <% if vif["mld_connect_band_pref"] == "6G" then %>selected="selected"<% end %>>6G</option>
+                           </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>ApClient Mode</td>
+                        <td>
+                            <input type="radio" name="disabled" id="ApCliEnableRadioOn" value="0" <% if vif["disabled"] == "0" then %> checked="checked"<% end %> onclick="toggle_apcli(true)"/> Enable
+                            <input type="radio" name="disabled" id="ApCliEnableRadioOff" value="1" <% if vif["disabled"] == "1" then %> checked="checked"<% end %> onclick="toggle_apcli(false)"/> Disable
+                        </td>
+                        <td></td>
+                    </tr>
+                    <tbody id="apcli_cfg" <% if vif["disabled"] == "1" then %> style="display:none;" <% end %> >
+                        <tr>
+                            <td>AP SSID</td>
+                            <td>
+                                <input type="text" name="ssid" id="ssid" value="<%=vif["ssid"] and vif["ssid"]:gsub("\"","&quot;") or nil%>"/>
+                            </td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>AP Authentication Mode</td>
+                            <td>
+                                <select name="authmode" cfg="AuthMode" id="AuthMode">
+                                    <% for _,mode in ipairs(ApCliAuthModeList) do %>
+                                        <option value="<%=mode%>" <% if authmode==mode then %> selected="selected" <% end %>><%=mode%></option>
+                                    <% end %>
+                                </select>
+                            </td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>EncryptType</td>
+                            <td>
+                                <select name="encrypttype" id="encrypttype" cfg="EncrypType">
+                                    <option value=""></option>
+                                </select>
+                            </td>
+                            <td></td>
+                        </tr>
+                        <tr id="wpa_key">
+                            <td>Key</td>
+                            <td>
+                                <input name="key" id="key" value="<%=vif["key"]%>">
+                            </td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>ieee802.11w</td>
+                            <td>
+                                <select name="ieee80211w" id="ieee80211w_select">
+                                    <option value="0" <% if vif["ieee80211w"] == "0" then %>selected="selected"<% end %>>0</option>
+                                    <option value="1" <% if vif["ieee80211w"] == "1" then %>selected="selected"<% end %>>1</option>
+                                    <option value="2" <% if vif["ieee80211w"] == "2" then %>selected="selected"<% end %>>2</option>
+                                </select>
+                            </td>
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </fieldset>
+            <div class="cbi-page-actions" id="apcli_form_buttons">
+                <input class="cbi-button cbi-button-apply" name="__apply" value="Save and Apply" type="submit">
+                <input class="cbi-button cbi-button-apply" value="Save" type="submit">
+                <input class="cbi-button cbi-button-reset" value="Reset" type="reset">
+            </div>
+        </fieldset>
+    </form>
+</div>
+<%+footer%>
+<script type="text/javascript">
+    let iface_list
+    function change_state(obj){
+        var state=obj.attributes.tag.value;
+        var htmode=obj.attributes.htmode.value;
+        var res = obj.attributes.intf.value;
+        if (state==0){
+        if (htmode.startsWith('UHR') || htmode.startsWith('EHT')) {
+        obj.checked=true;
+        obj.setAttribute("tag",1);
+        }
+        else{
+            alert("Only be mode support mlo");
+            obj.checked=false;
+           }
+        }else{
+            obj.setAttribute("tag",0);
+            obj.checked=false;
+        }
+
+        if(res.indexOf("apcli")!=-1){
+            init_main_sta()
+        }
+    }
+
+    function get_iface_list(info, is_init){
+        XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_iface_list_uci")%>/' + info.mode , null,
+            function(x) {
+                var list = JSON.parse(x.response)
+                iface_list = list
+                var selectedDevices = <% luci.http.write_json(selected_devices) %>;
+                let selectedDevArr = Array.isArray(selectedDevices) ? selectedDevices : Object.values(selectedDevices);
+                let str=''
+                for (let dev in list) {
+                    str += "<div><span>" + dev + "：</span>"
+                    let intfArr = list[dev]['intf'];
+                    if (Array.isArray(intfArr) && intfArr.length > 0) {
+                        let intf = intfArr[0];
+                        let checked = selectedDevArr.includes(intf.devname) ? "checked='checked'" : "";
+                        str += "<input htmode='" + list[dev]['htmode'] +
+                            "' tag='0' onclick='change_state(this)' intf='" + intf.main_ifname +
+                            "' id='" + intf.devname + "_" + intf.main_ifname +
+                            "' name='device' value='" + intf.devname +
+                            "' type='checkbox' " + checked + " /> " + intf.devname + "&nbsp;&nbsp;";
+                    }
+                    str += "</div>"
+                }
+
+                document.getElementById("iface_list").innerHTML = str
+            }
+        )
+    }
+
+    function toggle_apcli (show) {
+        if (show) {
+            document.getElementById('apcli_cfg').style.display = "";
+            ApCliAuthMode_onchange(document.getElementById("AuthMode").value, true, false);
+        }
+        else {
+            document.getElementById('apcli_cfg').style.display = "none";
+        }
+    }
+    function onStaModeSelected() {
+        var devnames = "<%= devnames%>";
+        var vifname = "<%= vifname%>";
+        window.location.href = "/cgi-bin/luci/admin/mtk/wifi/vif_add_intf/" + encodeURIComponent(devnames);
+    }
+
+    function fetchEncryptionList(isInit) {
+    var authmode = document.getElementById('AuthMode').value;
+    var wpaKeyRow = document.getElementById("wpa_key");
+    var encryptionrow= document.getElementById("encrypttype");
+    if (authmode === "Disable")
+    {
+        encryptionrow.style.display = "none"
+    }
+    else
+    {
+        encryptionrow.style.display = ""
+    }
+    if (authmode === "Disable" || authmode === "OPEN" || authmode === "OWE" || authmode === "Enhanced Open") {
+        wpaKeyRow.style.display = "none";
+    } else {
+        wpaKeyRow.style.display = "";
+    }
+    console.log('authmode:', authmode);
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_encryption_list_by_auth_mode")%>?auth_name=' + encodeURIComponent(authmode), null, function(x, data) {
+        var encryptionSelect = document.getElementById('encrypttype');
+        var currentEncryptType = "<%=encrypttype%>";
+        encryptionSelect.innerHTML = '';
+        var result = data;
+        if (!result && x && x.responseText) {
+            result = x.responseText;
+        }
+        if (result) {
+            var emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.text = '';
+            encryptionSelect.appendChild(emptyOpt);
+            var encrList = [];
+            encrList = JSON.parse(result);
+            for (var i = 0; i < encrList.length; i++) {
+                var opt = document.createElement('option');
+                opt.value = encrList[i];
+                opt.text = encrList[i];
+                encryptionSelect.appendChild(opt);
+            }
+            if (isInit) {
+                encryptionSelect.value = currentEncryptType || '';
+            } else {
+                encryptionSelect.selectedIndex = 0;
+            }
+        }
+        // set choose_rootap encrypttype
+        if (window._pendingEncryptType) {
+            encryptionSelect.value = window._pendingEncryptType;
+            window._pendingEncryptType = null;
+        }
+    });
+    }
+    var ap_list;
+    function create_ap_table (aplist) {
+        var table = document.createElement('TABLE');
+        table.setAttribute("id", "aplist_table");
+        table.style.width = "100%"
+        table.setAttribute("class", "cbi-section-table");
+        for (var i in aplist) {
+            var tr = table.insertRow(i);
+            var td0 = tr.insertCell(0);
+            td0.innerHTML = aplist[i].ssid;
+            var td1 = tr.insertCell(1);
+            td1.innerHTML = aplist[i].ssid.length;
+            var td2 = tr.insertCell(2);
+            td2.innerHTML = aplist[i].channel;
+            var td3 = tr.insertCell(3);
+            td3.innerHTML = aplist[i].bssid;
+            var td4 = tr.insertCell(4);
+            td4.innerHTML = aplist[i].security;
+            var td5 = tr.insertCell(5);
+            td5.innerHTML = aplist[i].rssi;
+            var td6 = tr.insertCell(6);
+            if ((aplist[i].authmode == "OPEN" &&   (aplist[i].encrypttype == "NONE" || aplist[i].encrypttype == "WEP")) ||
+                (aplist[i].authmode == "Enhanced Open" && aplist[i].encrypttype == "AES") ||
+                (aplist[i].authmode == "SHARED" && aplist[i].encrypttype == "WEP") ||
+                (aplist[i].authmode == "WPAPSK" &&(aplist[i].encrypttype == "TKIP" || aplist[i].encrypttype == "TKIPAES" || aplist[i].encrypttype == "AES" )) ||
+                (aplist[i].authmode == "WPA2PSK" &&(aplist[i].encrypttype == "TKIP" || aplist[i].encrypttype == "TKIPAES" || aplist[i].encrypttype == "AES" )) ||
+                (aplist[i].authmode == "WPAPSKWPA2PSK" &&(aplist[i].encrypttype == "TKIP" || aplist[i].encrypttype == "TKIPAES" || aplist[i].encrypttype == "AES" )) ||
+                (aplist[i].authmode == "OWE" && aplist[i].encrypttype == "AES") ||
+                (aplist[i].authmode == "WPA3PSKWPA3PSK-EXT" && (aplist[i].encrypttype == "AES"|| aplist[i].encrypttype == "AES_GCMP256"  || aplist[i].encrypttype == "GCMP256" )) ||
+                (aplist[i].authmode == "WPA3PSK" && (aplist[i].encrypttype == "AES"|| aplist[i].encrypttype == "AES_GCMP256"  || aplist[i].encrypttype == "GCMP256" )) ||
+                (aplist[i].authmode == "WPA2PSKWPA3PSKWPA3PSK-EXT" && (aplist[i].encrypttype == "AES"|| aplist[i].encrypttype == "AES_GCMP256" ||aplist[i].encrypttype == "NONE" )) ||
+                (aplist[i].authmode == "WPA2PSKWPA3PSK" && (aplist[i].encrypttype == "AES"|| aplist[i].encrypttype == "NONE"))) {
+                td6.innerHTML = '<a href="javascript:choose_rootap(\''+i+'\')" >Choose This</a>';
+            } else {
+                td6.innerHTML = 'Security Not Supported';
+            }
+        }
+
+        var tr = table.insertRow(0);
+        var td0 = tr.insertCell(0);
+        td0.innerHTML = '<strong>SSID</strong>';
+        var td1 = tr.insertCell(1);
+        td1.innerHTML = '<strong>SSID Length</strong>';
+        var td2 = tr.insertCell(2);
+        td2.innerHTML = '<strong>Channel</strong>';
+        var td3 = tr.insertCell(3);
+        td3.innerHTML = '<strong>BSSID</strong>';
+        var td4 = tr.insertCell(4);
+        td4.innerHTML = '<strong>Security</strong>';
+        var td5 = tr.insertCell(5);
+        td5.innerHTML = '<strong>RSSI</strong>';
+        var td6 = tr.insertCell(6);
+        td6.innerHTML = '<strong>Action</strong>';
+
+        var div = document.getElementById('aplist');
+        div.innerHTML = "";
+        div.appendChild(table);
+    }
+
+    function decode_ssid(ssid)
+    {
+        ssid = ssid.replace(/&amp;/g, "&");
+        ssid = ssid.replace(/&lt;/g, "<");
+        ssid = ssid.replace(/&gt;/g, ">");
+        ssid = ssid.replace(/&#34;/g, "\"");
+        ssid = ssid.replace(/&#39;/g, "'");
+        ssid = ssid.replace(/&nbsp;/g, " ");
+        var patt = new RegExp(/&#(\d+);/);
+
+        while (res = patt.exec(ssid))
+        {
+            ssid = ssid.replace("&#" + res[1] + ";", String.fromCharCode(res[1]));
+        }
+        return ssid;
+    }
+    function choose_rootap(index) {
+    document.getElementById("ssid").value = decode_ssid(ap_list[index].ssid);
+    document.getElementById("ApCliEnableRadioOff").checked = false;
+    document.getElementById("ApCliEnableRadioOn").checked = true;
+    document.getElementById("apcli_cfg").style.display = "";
+
+    var auth_mode_sel = document.getElementById("AuthMode");
+    console.log("auth_mode_sel:", auth_mode_sel);
+
+    var wpa_enc_type_sel = document.getElementById("encrypttype");
+    if (ap_list[index].encrypttype=="AES"){
+        wpa_enc_type_sel.value = "CCMP";
+    } else {
+        wpa_enc_type_sel.value = ap_list[index].encrypttype;
+    }
+    window._pendingEncryptType = wpa_enc_type_sel.value;
+    console.log('ap_list[index].authmode:', ap_list[index].authmode);
+    console.log('ap_list[index].encrypttype:', wpa_enc_type_sel.value);
+    XHR.get(
+        '<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "action_get_auth_by_name_or_alias")%>?name=' +
+        encodeURIComponent(ap_list[index].authmode),
+        null,
+        function(x, resp) {
+            console.log("XHR resp:", resp);
+            if (auth_mode_sel) {
+                if (resp && typeof resp === "object" && "auth" in resp) {
+                    auth_mode_sel.value = resp.auth || "";
+                    fetchEncryptionList();
+                    console.log("apcli_authmode raw response:", resp.auth);
+                } else {
+                    auth_mode_sel.value = "";
+                    console.error("resp", resp);
+                }
+            } else {
+                console.error("There is no element with the id AuthMode on the page!");
+            }
+        }
+    );
+
+    document.getElementById("ApCliWPAPSK").value = "";
+    document.getElementById("ApCliKey1Str").value = "";
+    document.getElementById("ApCliKey2Str").value = "";
+    document.getElementById("ApCliKey3Str").value = "";
+    document.getElementById("ApCliKey4Str").value = "";
+    location.href = "#apcli_cfg_section";
+}
+    function get_ap_list(vifname) {
+        document.getElementById("apcli_body_div").style.display="none";
+        document.getElementById("BusyText_ApCli").style.display="";
+
+        XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "apcli_scan")%>/' + vifname, null,
+            function(x)
+            {
+                console.log("apcli_scan raw response:", x);
+                try{
+                    ap_list = JSON.parse(x.response);
+                    console.log("ap_list debug info:", ap_list);
+                    if (typeof ap_list === "object") {
+                        for (var i = 0; i < ap_list.length; i++) {
+                            console.log("ap_list[" + i + "]:", ap_list[i]);
+                        }
+                    }
+                    create_ap_table(ap_list);
+                }
+                catch(e){
+                    alert("Invalid response received for ApCli Scan request!\nPlease try again.");
+                    console.log("Invalid response received for ApCli Scan request!",e.message,e.name);
+                }
+                finally{
+                    document.getElementById("BusyText_ApCli").style.display="none";
+                    document.getElementById("apcli_body_div").style.display="";
+                }
+            }
+        );
+    }
+    function getEncryption(authmode, encrypttype, callback) {
+        var authmode = document.getElementById('AuthMode').value;
+        var encrypttype = document.getElementById('encrypttype').value;
+        console.log("encrypttype1",encrypttype)
+        console.log("authmode1",authmode)
+        XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_encryption_by_auth")%>?authmode=' + encodeURIComponent(authmode) + '&encrypttype=' + encodeURIComponent(encrypttype), null, function(x) {
+            var resp = JSON.parse(x.response);
+            var encryptionInput = document.querySelector('input[name="encryption"]');
+            if (encryptionInput) encryptionInput.value = resp.encryption;
+            console.log("encryption",resp.encryption)
+            if (callback) callback(resp.encryption);
+        });
+    }
+
+    document.getElementById('AuthMode').addEventListener('change', fetchEncryptionList);
+    document.getElementById('AuthMode').addEventListener('change', getEncryption);
+    document.getElementById('encrypttype').addEventListener('change', getEncryption);
+
+    window.onload = function() {
+        var info = {mode: 'sta'};
+        get_iface_list(info, true);
+        fetchEncryptionList(true);
+    };
+</script>

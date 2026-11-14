@@ -1,0 +1,2920 @@
+
+<%#
+    File name : mtk_wifi_map_bss_cfg_renew.htm
+    This file is used in WebUI based on LuCI
+    to configure BSS in EasyMesh Network.
+%>
+<%+header%>
+
+<style>
+#config_bss_info{
+    width: 100%;
+}
+#config_bss_info tr td{
+    border: 1px dotted #bfbfbf;
+    padding: 5px 10px;
+}
+.ssidV{
+    white-space: pre;
+}
+tr.hidden {
+    display: none !important;
+}
+
+/* Align the multi-select boxes of RSNE/RSNOE/RSNO2E/RSNOXE sections */
+fieldset > table {
+    width: 100%;
+    table-layout: fixed;
+}
+fieldset > table td {
+    vertical-align: top;
+    padding: 8px 10px;
+}
+fieldset > table td:first-child {
+    width: 220px;
+    white-space: nowrap;
+}
+fieldset > table td:last-child select{
+    width: 100%;
+    box-sizing: border-box;
+}
+fieldset > table td:last-child select[multiple]{
+    min-height: 80px;
+}
+</style>
+
+<script src="/luci-static/resources/monCon.js"></script>
+
+
+<%
+    local mtkwifi = require("mtkwifi")
+    local cfgs = mtkwifi.load_easymesh_bss_cfgs()
+    local cfg_1905d = mtkwifi.load_profile("/etc/map/1905d.cfg")
+
+    local include_6G
+    local fp = io.popen("cat /etc/map/wts_bss_info_config | grep 13x")
+    local result = fp:read("*all")
+    if string.len(result) ~= 0 then include_6G = true else include_6G = false end
+    fp:close()
+    local r6_support = mtkwifi.r6_support()
+%>
+
+<fieldset class="cbi-section">
+    <legend><a>EasyMesh BSS Configuration</a>
+        <%local diff = mtkwifi.diff_profile(mtkwifi.__easymesh_bss_cfgs_path())%>
+        <%if next(diff) ~= nil then%>
+            <span style="color:red;">
+                ( Click "Save and Apply" button to apply EasyMesh BSS changes)
+            </span>
+        <% end %>
+    </legend>
+</fieldset>
+
+<div class="alert-message" id="bss_cfgs_loading_div" style="display:none">
+    <img src="<%=resource%>/icons/loading.svg" onerror="this.onerror=null;this.src='<%=resource%>/icons/loading.gif';" alt="" style="vertical-align:middle" />
+    <big><strong>Please wait while the request is being processed!</strong></big>
+</div>
+<div id="bss_cfgs_error" style="display:none">
+    <legend class="alert-message error">There is an error in <strong>etc/map/wts_bss_info_config</strong> file. Only one Bss configuration can be set as Primary Vlan.</legend>
+</div>
+<div id="bss_cfgs_info" style="display:none">
+    <legend class="alert-message info">There is no Primary Vlan set in <strong>etc/map/wts_bss_info_config</strong> file. Please set one Primary Vlan in any of the BSS.</legend>
+</div>
+
+<div id="bss_cfgs_display">
+    <p class="left">
+        <input id="add_new_dev_bss_cfgs_inp_btn" type="button" class="cbi-button cbi-button-add" onclick="addNewBssCfgs()" value="Add  BSS Configurations"/>
+    </p>
+    <form method="post" name="cbi" id="add_bss_cfgs_form" action="<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "easymesh_bss_cfg")%>" enctype="multipart/form-data" onsubmit="return rsn_data_processing() && validate_all()" autocomplete="off" style="display:none">
+        <input type="hidden" name="__IS_EDIT" id="edit_bss_hid_inp" value="0" />
+        <input type="hidden" name="__EDIT_SSID" id="edit_bss_ssid_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_ID" id="edit_bss_id" value="" />
+        <input type="hidden" name="__EDIT_AUTH_MODE" id="edit_bss_auth_mode_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_ENCRYPTION_TYPE" id="edit_bss_enc_type_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_PASS_PHRASE" id="edit_bss_pass_phrase_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_BH_SUPPORT" id="edit_bss_bh_support_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_FH_SUPPORT" id="edit_bss_fh_support_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_IS_SSID_HIDDEN" id="edit_bss_is_ssid_hidden_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_FH_VLAN_ID" id="edit_bss_fh_vlan_hidden_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_PRIM_VLAN" id="edit_bss_prim_vlan_hidden_hid_inp" value="" />
+        <input type="hidden" name="__EDIT_DEF_PCP" id="edit_bss_def_pcp_hidden_hid_inp" value="" />
+        <input type="hidden" name="isBhBssSupported" id="add_bss_bh_hid_inp" value="0" />
+        <input type="hidden" name="isFhBssSupported" id="add_bss_fh_hid_inp" value="0" />
+        <input type="hidden" name="isHidden" id="add_bss_is_ssid_hidden_hid_inp" value="0" />
+        <input type="hidden" name="primVlan" id="add_bss_prim_vlan_hid_inp" value="0" />
+        <input type="hidden" name="defPCP" id="add_bss_def_pcp_hid_inp" value="0" />
+
+        <input type="hidden" name="group_cipher" id="group_cipher_hidden" value="" />
+        <input type="hidden" name="rsn_pairwise_cipher" id="rsn_pairwise_cipher_hidden" value="" />
+        <input type="hidden" name="wpa_key_mgmt" id="wpa_key_mgmt_hidden" value="" />
+        <input type="hidden" name="rsn_cap" id="rsn_cap_hidden" value="" />
+        <!-- Hidden fields for multi-select boxes, auto generated -->
+        <input type="hidden" name="group_mgmt_cipher" id="group_mgmt_cipher_hidden" value="" />
+
+        <input type="hidden" name="group_data_cipher1" id="group_data_cipher1_hidden" value="" />
+        <input type="hidden" name="rsn_override_pairwise_cipher" id="rsn_override_pairwise_cipher_hidden" value="" />
+        <input type="hidden" name="rsn_override_key_mgmt" id="rsn_override_key_mgmt_hidden" value="" />
+        <input type="hidden" name="rsn_cap2" id="rsn_cap2_hidden" value="" />
+        <input type="hidden" name="group_mgmt_cipher2" id="group_mgmt_cipher2_hidden" value="" />
+        <input type="hidden" name="group_data_cipher2" id="group_data_cipher2_hidden" value="" />
+        <input type="hidden" name="override2_rsn_pairwise_cipher" id="override2_rsn_pairwise_cipher_hidden" value="" />
+        <input type="hidden" name="rsn_override2_key_mgmt" id="rsn_override2_key_mgmt_hidden" value="" />
+        <input type="hidden" name="rsn_cap3" id="rsn_cap3_hidden" value="" />
+        <input type="hidden" name="group_mgmt_cipher3" id="group_mgmt_cipher3_hidden" value="" />
+
+        <input type="hidden" name="rsn_pairwise_cipher_cnt" id="rsn_pairwise_cipher_cnt" value="" />
+        <input type="hidden" name="wpa_key_mgmt_cnt" id="wpa_key_mgmt_cnt" value="" />
+        <input type="hidden" name="rsn_override_pairwise_cipher_cnt" id="rsn_override_pairwise_cipher_cnt" value="" />
+        <input type="hidden" name="rsn_override_key_mgmt_cnt" id="rsn_override_key_mgmt_cnt" value="" />
+        <input type="hidden" name="override2_rsn_pairwise_cipher_cnt" id="override2_rsn_pairwise_cipher_cnt" value="" />
+        <input type="hidden" name="rsn_override2_key_mgmt_cnt" id="rsn_override2_key_mgmt_cnt" value="" />
+        <input type="hidden" name="rsne_type"   id="rsne_type"   value="" />
+        <input type="hidden" name="rsnoe_type"  id="rsnoe_type"  value="" />
+        <input type="hidden" name="rsno2e_type" id="rsno2e_type" value="" />
+        <input type="hidden" name="rsnxe_type"  id="rsnxe_type"  value="" />
+
+        <input type="hidden" name="pmkid_list"  id="pmkid_list_hidden"  value="" />
+        <input type="hidden" name="pmkid_cnt"   id="pmkid_cnt_hidden"   value="" />
+        <input type="hidden" name="pmkid_list2" id="pmkid_list2_hidden" value="" />
+        <input type="hidden" name="pmkid_cnt2"  id="pmkid_cnt2_hidden"  value="" />
+        <input type="hidden" name="pmkid_list3" id="pmkid_list3_hidden" value="" />
+        <input type="hidden" name="pmkid_cnt3"  id="pmkid_cnt3_hidden"  value="" />
+
+        <td></td>
+        <table class="cbi-section-table" id="add_bss_cfgs_tbl">
+            <tr>
+                <td>AL-MAC</td>
+                <td>
+                    <input type="text" name="alMac" id="add_bss_almac_inp_text" />
+                </td>
+            </tr>
+            <tr>
+                <td>Radio Band</td>
+                <td>
+                    <select name="band" size="1" id="add_bss_band_sel"onchange="get_key_mgmt_list()">
+                        <option value="8x">2G</option>
+                        <option value="11x">5GL</option>
+                        <option value="12x">5GH</option>
+                        <% if include_6G then %>
+                            <option value="13x">6G</option>
+                        <% end %>
+                    </select>
+                </td>
+                <td></td>
+            </tr>
+            <tbody id="add_bss_cfgs_fields_tbody" style="display:none">
+                <tr>
+                    <td>SSID</td>
+                    <td>
+                        <input type="text" name="ssid" id="add_bss_ssid_inp_text" />
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Authentication Mode</td>
+                    <td>
+                        <select size="1" id="add_bss_auth_mode_sel" onchange="AuthModeOnChange(this.value)">
+                            <% if cfg_1905d.map_ver ~= "R3"then %>
+                                <option class="no_need_6g" value="0x0001">OPEN</option>
+                            <% end %>
+                            <% if r6_support then %>
+                                <option value="0x1000">OWE</option>
+                                <option class="no_need_6g" value="0x2000">OWE Transition</option>
+                            <% end %>
+                            <option class="no_need_6g" value="0x0020">WPA2 - Personal</option>
+                            <option value="0x0040">WPA3 - SAE Only</option>
+                            <option class="no_need_6g" value="0x0060">WPA3 - Transition Mode</option>
+                            <% if r6_support then %>
+                                <option value="0x0100" class="no_need_FH">SAE-AKM24</option>
+                                <option value="0x0120" class="no_need_6g">SAE-AKM24+WPA2-Personal</option>
+                                <option value="0x0140" class="only_need_6g">SAE-AKM24+WPA3-SAE</option>
+                                <option value="0x0160" class="no_need_6g">SAE-AKM24+WPA3-SAE+WPA2-Personal</option>
+                                <option value="0x0180" class="no_need_FH">DPP+SAE-AKM24</option>
+                                <option value="0x01A0" class="no_need_6g no_need_FH">DPP+SAE-AKM24+WPA2-Personal</option>
+                                <option value="0x01C0" class="no_need_FH">DPP+SAE-AKM24+WPA3-SAE</option>
+                                <option value="0x01E0" class="no_need_6g no_need_FH">DPP+SAE-AKM24+WPA3-SAE+WPA2-Personal</option>
+                            <% end %>
+                            <% if cfg_1905d.map_ver ~= "R1" and cfg_1905d.map_ver ~= "R2" then %>
+                                <option value="0x0080" class="no_need_FH">DPP Only</option>
+                                <option class="no_need_6g no_need_FH" value="0x00A0">DPP + WPA2 - Personal</option>
+                                <option value="0x00C0" class="no_need_FH">DPP + WPA3 - SAE</option>
+                                <option class="no_need_6g no_need_FH" value="0x00E0">DPP + WPA3 - Transition Mode</option>
+                            <% end %>
+                        </select>
+                    </td>
+                    <td>open is forbidden for dpp onboarding</td>
+                </tr>
+                <tr id="mrsno_row">
+                    <td>MRSNO</td>
+                    <td>
+                        <input type="checkbox" id="mrsno_checkbox" onclick="onMrsnoToggle(this)" />
+                        <input type="hidden" id="mrsno_value_hidden" value="0x0000" />
+                        <input type="hidden" name="auth_mrsno_combined" id="auth_mrsno_combined_hidden" value="" />
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Encryption Type</td>
+                    <td>
+                        <select name="encType" size="1" id="add_bss_enc_type_sel" onchange="EncryptionTypeOnChange(this.value)">
+                            <option value="0x0001">NONE</option>
+                            <option value="0x0008">AES</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr id= "key" >
+                    <td>Pass-phrase</td>
+                    <td>
+                        <input type="text" name="passPhrase" id="add_bss_pass_phrase_inp_text" />
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Hidden</td>
+                    <td>
+                        <input type="checkbox" id="add_bss_is_ssid_hidden_cbox" />
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Back-haul BSS Support</td>
+                    <td>
+                        <input type="checkbox" id="add_bss_bh_cbox" onclick="clearAuthMode();toggleMrsnoVisibility()"/>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Front-haul BSS Support</td>
+                    <td>
+                        <input type="checkbox" id="add_bss_fh_cbox" onclick="fh_change();clearAuthMode()"  />
+                    </td>
+                    <td></td>
+                </tr>
+                <tr id="fh_vlan_id">
+                    <td>FH Vlan ID</td>
+                    <td>
+                        <input type="text" name="fhVlanId" id="add_bss_fh_vlan_id" /> (valid values: 3-4094, disabled value: 4095)
+                    </td>
+                    <td></td>
+                </tr>
+                <tr id="primary_vlan">
+                    <td>Primary Vlan</td>
+                    <td>
+                        <input type="checkbox" id="add_bss_pvlan_cbox" onclick="togglePCP(this)" />
+                    </td>
+                    <td></td>
+                </tr>
+                <tr id="default_pcp">
+                    <td>Default PCP</td>
+                    <td>
+                        <input type="text" id="add_bss_def_pcp" maxlength="1" disabled /> (valid values: 0-7)
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>MLD Group ID</td>
+                    <td>
+                        <input name="mldGroupId" type="text" id="add_mld_group_id" />
+                        <p style="display: none;" id="mld_group_pre"></p>
+                    </td>
+                    <td>(for save & apply: valid values: 1-48; for reconfig: valid values: 0-48)</td>
+                    </tr>
+            </tbody>
+            </table>
+                <fieldset id="rsn_section" style="border:2px solid #337ab7; padding:10px; display:none">
+                    <legend style="font-weight:bold; color:white; background:#337ab7; padding:2px 8px;">RSNE</legend>
+                    <table>
+                    <tr>
+                        <td>Group Cipher</td>
+                        <td>
+                            <select id="rsne-group-cipher"></select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>RSN Pairwise Cipher</td>
+                        <td>
+                            <select id="rsne-pairwise-cipher" multiple></select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>WPA key Mgmt</td>
+                        <td>
+                            <select id="rsne-key-mgmt" multiple></select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>RSN Capability</td>
+                        <td>
+                            <select id="rsne-capability" multiple>
+                            <option value="MFPC">MFPC</option>
+                            <option value="MFPR">MFPR</option>
+                            </select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>Group Mgmt Cipher</td>
+                        <td>
+                            <select id="rsne-group-mgmt-cipher"></select>
+                        </td>
+                    </tr>
+
+                    <tr style="display:none;">
+                        <td>Pmkid</td>
+                        <td>
+                            <select id="pmkid_select">
+                                <option value="NA">NA</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" style="text-align:right; padding-top:10px;">
+                            <input class="cbi-button cbi-button-reset" type="button" value="Clear RSNE" onclick="clearRsneSection()" />
+                        </td>
+                    </tr>
+                </table>
+                </fieldset>
+
+                <fieldset id="rsnoe_section" style="border:2px solid #337ab7; padding:10px;display:none;">
+                    <legend style="font-weight:bold; color:white; background:#337ab7; padding:2px 8px;">RSNOE</legend>
+                    <table>
+                    <tr>
+                        <td>Group Cipher</td>
+                        <td>
+                            <select id="rsne-group-cipher2" disabled></select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>rsn_overrding_pairwise_cipher</td>
+                        <td>
+                            <select id="rsn_override_pairwise_cipher"></select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>rsn_override_key_mgmt</td>
+                        <td>
+                            <select id="rsn_override_key_mgmt"></select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>RSN Capability</td>
+                        <td>
+                            <select id="rsne-capability2" multiple>
+                            <option value="MFPC">MFPC</option>
+                            <option value="MFPR">MFPR</option>
+                            </select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>Group Mgmt Cipher</td>
+                        <td>
+                            <select id="group_mgmt_cipher2" disabled></select>
+                        </td>
+                    </tr>
+
+                    <tr style="display:none;">
+                        <td>Pmkid</td>
+                        <td>
+                            <select id="pmkid_select2">
+                                <option value="">  </option>
+                                <option value="NA">NA</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" style="text-align:right; padding-top:10px;">
+                            <input class="cbi-button cbi-button-reset" type="button" value="Clear RSNOE" onclick="clearRsnoeSection()" />
+                        </td>
+                    </tr>
+                </table>
+                </fieldset>
+                <fieldset id="rsno2e_section" style="border:2px solid #337ab7; padding:10px;display:none;">
+                    <legend style="font-weight:bold; color:white; background:#337ab7; padding:2px 8px;">RSNO2E</legend>
+                    <table>
+                    <tr>
+                        <td>Group Cipher</td>
+                        <td>
+                            <select id="rsne-group-cipher3" disabled></select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>rsn_overrding2_pairwise_cipher</td>
+                        <td>
+                            <select id="override2_rsn_pairwise_cipher"></select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>rsn_override2_key_mgmt</td>
+                        <td>
+                            <select id="rsn_override2_key_mgmt"></select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>RSN Capability</td>
+                        <td>
+                            <select id="rsne-capability3" multiple>
+                            <option value="MFPC">MFPC</option>
+                            <option value="MFPR">MFPR</option>
+                            </select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>Group Mgmt Cipher</td>
+                        <td>
+                            <select id="group_mgmt_cipher3" disabled></select>
+                        </td>
+                    </tr>
+
+                    <tr style="display:none;">
+                        <td>Pmkid</td>
+                        <td>
+                            <select id="pmkid_select3">
+                                <option value="">  </option>
+                                <option value="NA">NA</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" style="text-align:right; padding-top:10px;">
+                            <input class="cbi-button cbi-button-reset" type="button" value="Clear RSNO2E" onclick="clearRsno2eSection()" />
+                        </td>
+                    </tr>
+                </table>
+                </fieldset>
+                <fieldset id="rsnoxe_section" style="border:2px solid #337ab7; padding:10px;display:none;">
+                    <legend style="font-weight:bold; color:white; background:#337ab7; padding:2px 8px;">RSNOXE</legend>
+                    <table>
+                    <tr>
+                        <td>Extended RSN CAP</td>
+                        <td>
+                            <input type="hidden" name="extended_rsn_cap" id="extended_rsn_cap_hidden" value="">
+                            <input type="checkbox" id="extended_rsn_cap" value="0x20">
+                            <label>SAE PWE</label>
+                        </td>
+                    </tr>
+                </table>
+                </fieldset>
+        <div class="cbi-page-actions" id="add_bss_cfgs_validate_almac_band_div">
+            <input class="cbi-button cbi-button-apply" type="button" value="Validate AL-MAC & Band" onclick="addBssPreConditionCheck()" />
+        </div>
+        <div class="cbi-page-actions" id="add_bss_cfgs_form_submit_div" style="display:none">
+            <input class="cbi-button cbi-button-apply" name="mld_reconfig" value="Ap mld reconfig" onclick="apply_flag=1;operator_flag='reconfig'" type="submit"  />
+            <input class="cbi-button cbi-button-apply" name="__apply" value="Save and Apply" onclick="apply_flag=1;operator_flag='save'" type="submit" />
+            <input class="cbi-button cbi-button-apply" name="__save" value="Save" onclick="apply_flag=0;operator_flag='save'" type="submit"  />
+            <input class="cbi-button cbi-button-reset" value="Reset" type="reset" />
+        </div>
+    </form>
+
+    <div class="alert-message" id='no_bss_cfg_msg_div' style="display:none">
+        <strong>No BSS Configuration has been added yet!</strong>
+    </div>
+
+    <fieldset class="cbi-section" id='cfg_bss_info_hdr_fset' style='display:none'>
+        <legend>
+            Configured BSS Information
+        </legend>
+        <div id="bss_overview_div">
+            <!-- JavaScript will create the table with BSS Information -->
+        </div>
+    </fieldset>
+
+</div>
+
+<script type="text/javascript">
+    let apply_flag=0
+    let operator_flag = "save"
+    var g_currentEditBssInfo = null
+    var g_currentBandHtmode = ""
+    function checkInjection(str)
+    {
+        for (var i=0; i < str.length; i++) {
+            if ( str.charAt(i) == '\r' || str.charAt(i) == '\n'){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function validate_security()
+    {
+        var authModeSel = document.getElementById('add_bss_auth_mode_sel');
+        var encTypeSel = document.getElementById('add_bss_enc_type_sel');
+        var passPhraseId = document.getElementById('add_bss_pass_phrase_inp_text');
+        var passPhrase = passPhraseId.value;
+        if((authModeSel.value == '0x0001' && encTypeSel.value == '0x0001') || authModeSel.value == '0x1000' ||
+            authModeSel.value == '0x2000'){
+            //AUTH_MODE = OPEN and ENCRYPTION_TYPE = NONE
+            passPhraseId.value = '';
+        }
+        else if((authModeSel.value == '0x0020' || authModeSel.value == '0x00A0'
+        || authModeSel.value == '0x0120' || authModeSel.value == '0x0160'
+        || authModeSel.value == '0x01A0'  || authModeSel.value == '0x01E0' ) && encTypeSel.value == '0x0008'){
+            //AUTH_MODE = WPA2-Personal and ENCRYPTION_TYPE = AES
+            if (passPhrase.length == 0){
+                alert('Pass-phrase is empty!\n' +
+                    'Please enter 8~63 ASCII or 64 Hexadecimal characters as Pass-phrase.');
+                passPhraseId.select();
+                passPhraseId.focus();
+                return false;
+            }
+            if (passPhrase.length < 8){
+                alert('Pass-phrase is short!\n' +
+                    'Please enter 8~63 ASCII or 64 Hexadecimal characters as Pass-phrase.');
+                passPhraseId.select();
+                passPhraseId.focus();
+                return false;
+            }
+            var nonHexPat = /[^A-Fa-f0-9]/;
+            if(nonHexPat.test(passPhrase)){
+                // ASCII
+                if (passPhrase.length > 63) {
+                    alert('Too many characters in Pass-phrase!\n' +
+                        'Please enter 8~63 ASCII or 64 Hexadecimal characters as Pass-phrase.');
+                    passPhraseId.select();
+                    passPhraseId.focus();
+                    return false;
+                }
+            }
+            else{
+                // Hexadecimal
+                if (passPhrase.length > 64 ){
+                    alert('Too many characters in Pass-phrase!\n' +
+                        'Please enter 64 Hexadecimal or 8~63 ASCII characters as Pass-phrase.');
+                    passPhraseId.select();
+                    passPhraseId.focus();
+                    return false;
+                }
+            }
+            if(checkInjection(passPhrase) == false){
+                alert('Please enter 8~63 ASCII or 64 Hexadecimal characters as Pass-phrase.');
+                passPhraseId.select();
+                passPhraseId.focus();
+                return false;
+            }
+
+        }
+        else if((authModeSel.value == '0x0060' || authModeSel.value == '0x0040' || authModeSel.value == '0x00C0' || authModeSel.value == '0x0100'||   authModeSel.value == '0x0140'  || authModeSel.value == '0x00E0'  ||
+            authModeSel.value == '0x01C0' || authModeSel.value == '0x0180'||authModeSel.value=='0x0080') && encTypeSel.value == '0x0008'){
+            if (passPhrase.length > 63 || passPhrase.length < 8) {
+                alert('Please enter 8~63 ASCII characters as Pass-phrase.');
+                passPhraseId.select();
+                passPhraseId.focus();
+                return false;
+            }
+            if(checkInjection(passPhrase) == false){
+                alert('Please enter 8~63 ASCII characters as Pass-phrase.');
+                passPhraseId.select();
+                passPhraseId.focus();
+                return false;
+            }
+        }
+        else{
+            alert('Invalid security settings!\n'+
+                'Please select valid Authentication Mode and Encryption Type.');
+            authModeSel.focus();
+            return false;
+        }
+        return true;
+    }
+
+    function validate_ssid()
+    {
+        var ssidInp = document.getElementById("add_bss_ssid_inp_text");
+        var ssid = ssidInp.value;
+        if(ssid.length == 0){
+            alert('SSID is empty!\n' +
+                'Please enter SSID with 1 to 32 characters.');
+            ssidInp.select();
+            ssidInp.focus();
+            return false;
+        }
+        if(ssid.length > 32){
+            alert('Too many characters in SSID!\n' +
+                'Please enter SSID with 1 to 32 characters.');
+            ssidInp.select();
+            ssidInp.focus();
+            return false;
+        }
+        if(checkInjection(ssid) == false){
+            alert('Please enter SSID with 1 to 32 characters.');
+            ssidInp.select();
+            ssidInp.focus();
+            return false;
+        }
+        if(ssid.indexOf("\"")!=-1){
+            alert("Please do not add double quotes in ssid.")
+            return false;
+        }
+        return true;
+    }
+
+    function validate_al_mac()
+    {
+        var alMacInp = document.getElementById('add_bss_almac_inp_text');
+        var macRegExp = /[A-Fa-f0-9]{2}:[A-Fa-f0-9]{2}:[A-Fa-f0-9]{2}:[A-Fa-f0-9]{2}:[A-Fa-f0-9]{2}:[A-Fa-f0-9]{2}/;
+        if (!macRegExp.test(alMacInp.value)) {
+            alert("Please fill AL-MAC in correct format! (XX:XX:XX:XX:XX:XX)");
+            alMacInp.focus();
+            alMacInp.select();
+            return false;
+        }
+        return true;
+    }
+    
+    function hasCommonSubstring(str1, str2) {
+        for (let i = 0; i < str1.length; i++) {
+            for (let j = i + 1; j <= str1.length; j++) {
+                let substr = str1.substring(i, j);
+                if (str2.includes(substr)) {
+                    return true;
+                }
+            }
+        }
+      return false;
+    }
+
+
+    function validate_mld_id(){
+        // Check if wireless mode is 11BE (EHT or UHR prefix)
+        var is11BE = g_currentBandHtmode && (g_currentBandHtmode.startsWith('EHT') || g_currentBandHtmode.startsWith('UHR'));
+
+        // Skip all MLD validation for non-11BE modes (MLD is WiFi 7 feature only)
+        if(!is11BE){
+            return true;
+        }
+
+        // Below validations only apply to 11BE mode
+        var cfgsJs = get_easymesh_bss_overview_info();
+        var alMacInp = document.getElementById('add_bss_almac_inp_text').value;
+        var mld_id = document.getElementById('add_mld_group_id').value;
+        var band = document.getElementById('add_bss_band_sel').value;
+        var id = document.getElementById("edit_bss_id").value;
+        var ssid = document.getElementById("add_bss_ssid_inp_text").value;
+        var authMode = document.getElementById("add_bss_auth_mode_sel").value;
+        var encry = document.getElementById("add_bss_enc_type_sel").value;
+        var pwd = document.getElementById("add_bss_pass_phrase_inp_text").value;
+        var bh = document.getElementById("add_bss_bh_cbox").checked?"1":"0";
+        var fh = document.getElementById("add_bss_fh_cbox").checked?"1":"0";
+        var mld_id_pre = document.getElementById("mld_group_pre").innerText;
+
+        if(mld_id.length == 0 && mld_id_pre != ""){
+            alert("Mldgroup ID cannot be deleted!");
+            return false;
+        }
+
+        if(mld_id.length == 0){
+            alert("Mldgroup ID cannot be empty!");
+            return false;
+        }
+        if (operator_flag=="save" && (mld_id<1 || mld_id>48 || isNaN(mld_id) )){
+            alert("Please enter the correct mldgroup id!");
+            return false
+        }else{
+            if( mld_id == 0 ){
+                return true
+            }
+            if ( mld_id<1 || mld_id>48 || isNaN(mld_id) ){
+                alert("Please enter the correct mldgroup id!");
+                return false
+            }
+        }
+
+        if(alMacInp=="FF:FF:FF:FF:FF:FF"){
+            cfgs = cfgsJs["wildCardAlMacCfgs"]["FF:FF:FF:FF:FF:FF"];
+        }else{
+            cfgs = cfgsJs["distinctAlMacCfgs"][alMacInp];
+        }
+
+        //determine if the mldgroup IDs within the same band are different
+        if(cfgs){
+            var bandCfg = cfgs[band];
+            for (let key in bandCfg){
+                if ( bandCfg[key]["id"] != id && bandCfg[key]["mldGroupId"] == mld_id ){
+                    alert("The mldgroup id under the same band should be different!");
+                    return false;
+                }
+            }
+        }
+        if(apply_flag==0){
+            return true
+        }
+
+        //the configuration with the same mldgroup id should be the same
+        var flag = true
+        for (let k in cfgs){
+            for (let m in cfgs[k]){
+                var info = cfgs[k][m]
+                if(info["mldGroupId"]==mld_id && info.id != document.getElementById('edit_bss_id').value ){
+                    if( info.ssid!=ssid ){
+                        alert("the ssid with the same mldgroup id should be the same")
+                        flag = false;
+                        break;
+                    }else if( info.encType!=encry ){
+                        alert("the encType with the same mldgroup id should be the same")
+                        flag = false;
+                        break;
+                    }else if( info.passPhrase!=pwd ){
+                        alert("the passPhrase with the same mldgroup id should be the same")
+                        flag = false;
+                        break;
+                    }else if( info.isBhBssSupported!=bh ){
+                        alert("the BH BSS Support with the same mldgroup id should be the same")
+                        flag = false;
+                        break;
+                    }else if( info.isFhBssSupported!=fh ){
+                        alert("the FH BSS Support with the same mldgroup id should be the same")
+                        flag = false;
+                        break;
+                    }
+
+                    auth1 = get_auth_mode_str(info.authMode)
+                    auth2 = get_auth_mode_str(authMode)
+                    if (auth1==auth2){
+                        flag = true
+                    }else if( hasCommonSubstring(auth1, auth2) ){
+                        flag = true
+                    }else {
+                        alert("the authMode with the same mldgroup id should be the same")
+                        flag = false;
+                        break;
+                    }
+                }
+            }
+            if(flag == false ){break;}
+        }
+
+        return flag;
+    }
+
+    function selectHasSelection(selectId) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return false;
+        if (sel.multiple) {
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].selected && sel.options[i].value !== '') {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return sel.value !== '' && sel.value !== ' ';
+    }
+
+    function getSelectCurrentValue(selectId) {
+        var sel = document.getElementById(selectId);
+        return sel ? sel.value : '';
+    }
+
+    function setSingleSelectValue(selectId, value) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+
+        var targetValue = value || '';
+        for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === targetValue) {
+                sel.selectedIndex = i;
+                return;
+            }
+        }
+
+        for (var j = 0; j < sel.options.length; j++) {
+            if (sel.options[j].value === '') {
+                sel.selectedIndex = j;
+                return;
+            }
+        }
+
+        sel.selectedIndex = -1;
+    }
+
+    function syncOverrideSectionGroupCiphers(sectionSuffix) {
+        var config = {
+            '2': {
+                group: 'rsne-group-cipher2',
+                mgmt: 'group_mgmt_cipher2',
+                drivers: ['rsn_override_pairwise_cipher', 'rsn_override_key_mgmt', 'rsne-capability2']
+            },
+            '3': {
+                group: 'rsne-group-cipher3',
+                mgmt: 'group_mgmt_cipher3',
+                drivers: ['override2_rsn_pairwise_cipher', 'rsn_override2_key_mgmt', 'rsne-capability3']
+            }
+        }[sectionSuffix];
+
+        if (!config) return;
+
+        var isActive = false;
+        for (var i = 0; i < config.drivers.length; i++) {
+            if (selectHasSelection(config.drivers[i])) {
+                isActive = true;
+                break;
+            }
+        }
+
+        setSingleSelectValue(config.group, isActive ? getSelectCurrentValue('rsne-group-cipher') : '');
+        setSingleSelectValue(config.mgmt, isActive ? getSelectCurrentValue('rsne-group-mgmt-cipher') : '');
+    }
+
+    function syncRsnOverrideGroupCiphers() {
+        syncOverrideSectionGroupCiphers('2');
+        syncOverrideSectionGroupCiphers('3');
+    }
+
+    function bindRsnOverrideGroupCipherSync() {
+        [
+            'rsne-group-cipher',
+            'rsne-group-mgmt-cipher',
+            'rsn_override_pairwise_cipher',
+            'rsn_override_key_mgmt',
+            'rsne-capability2',
+            'override2_rsn_pairwise_cipher',
+            'rsn_override2_key_mgmt',
+            'rsne-capability3'
+        ].forEach(function(id) {
+            var elem = document.getElementById(id);
+            if (elem) {
+                elem.addEventListener('change', syncRsnOverrideGroupCiphers);
+            }
+        });
+
+        syncRsnOverrideGroupCiphers();
+    }
+
+    function validate_rsn_sections() {
+        // Check if MRSNO is enabled, if not, skip validation
+        var mrsnoCheckbox = document.getElementById('mrsno_checkbox');
+        if (!mrsnoCheckbox || !mrsnoCheckbox.checked) {
+            return true; // MRSNO not enabled, skip validation
+        }
+
+        syncRsnOverrideGroupCiphers();
+
+        // Validate RSNE section (mandatory - all fields must be configured)
+        var rsneFields = [
+            {id: 'rsne-group-cipher', name: 'Group Cipher'},
+            {id: 'rsne-pairwise-cipher', name: 'RSN Pairwise Cipher'},
+            {id: 'rsne-key-mgmt', name: 'WPA Key Mgmt'},
+            {id: 'rsne-capability', name: 'RSN Capability'},
+            {id: 'rsne-group-mgmt-cipher', name: 'Group Mgmt Cipher'}
+        ];
+        var rsneEmptyFields = [];
+        for (var i = 0; i < rsneFields.length; i++) {
+            if (!selectHasSelection(rsneFields[i].id)) {
+                rsneEmptyFields.push(rsneFields[i].name);
+            }
+        }
+        if (rsneEmptyFields.length > 0) {
+            alert('RSNE section validation failed:\n\n' +
+                  'RSNE is MANDATORY. ALL fields must be configured.\n\n' +
+                  'Empty fields: ' + rsneEmptyFields.join(', '));
+            return false;
+        }
+
+        // Validate RSNOE section
+        var rsnoeFields = [
+            {id: 'rsne-group-cipher2', name: 'Group Cipher'},
+            {id: 'rsn_override_pairwise_cipher', name: 'RSN Pairwise Cipher'},
+            {id: 'rsn_override_key_mgmt', name: 'WPA Key Mgmt'},
+            {id: 'rsne-capability2', name: 'RSN Capability'},
+            {id: 'group_mgmt_cipher2', name: 'Group Mgmt Cipher'}
+        ];
+        var rsnoeHasAny = false;
+        var rsnoeEmptyFields = [];
+        for (var j = 0; j < rsnoeFields.length; j++) {
+            if (selectHasSelection(rsnoeFields[j].id)) {
+                rsnoeHasAny = true;
+            } else {
+                rsnoeEmptyFields.push(rsnoeFields[j].name);
+            }
+        }
+        if (rsnoeHasAny && rsnoeEmptyFields.length > 0) {
+            alert('RSNOE section validation failed:\n\n' +
+                  'When any field in RSNOE is configured, ALL fields must be configured.\n\n' +
+                  'Empty fields: ' + rsnoeEmptyFields.join(', ') + '\n\n' +
+                  'If you do not want to use RSNOE, please set ALL fields in RSNOE section to empty/blank.');
+            return false;
+        }
+        if (rsnoeHasAny &&
+            (getSelectCurrentValue('rsne-group-cipher2') !== getSelectCurrentValue('rsne-group-cipher') ||
+             getSelectCurrentValue('group_mgmt_cipher2') !== getSelectCurrentValue('rsne-group-mgmt-cipher'))) {
+            alert('RSNOE section validation failed:\n\n' +
+                  'Group Cipher and Group Mgmt Cipher must match the RSNE section.');
+            return false;
+        }
+
+        // Validate RSNO2E section
+        var rsno2eFields = [
+            {id: 'rsne-group-cipher3', name: 'Group Cipher'},
+            {id: 'override2_rsn_pairwise_cipher', name: 'RSN Pairwise Cipher'},
+            {id: 'rsn_override2_key_mgmt', name: 'WPA key Mgmt'},
+            {id: 'rsne-capability3', name: 'RSN Capability'},
+            {id: 'group_mgmt_cipher3', name: 'Group Mgmt Cipher'}
+        ];
+        var rsno2eHasAny = false;
+        var rsno2eEmptyFields = [];
+        for (var k = 0; k < rsno2eFields.length; k++) {
+            if (selectHasSelection(rsno2eFields[k].id)) {
+                rsno2eHasAny = true;
+            } else {
+                rsno2eEmptyFields.push(rsno2eFields[k].name);
+            }
+        }
+        if (rsno2eHasAny && rsno2eEmptyFields.length > 0) {
+            alert('RSNO2E section validation failed:\n\n' +
+                  'When any field in RSNO2E is configured, ALL fields must be configured.\n\n' +
+                  'Empty fields: ' + rsno2eEmptyFields.join(', ') + '\n\n' +
+                  'If you do not want to use RSNO2E, please set ALL fields in RSNO2E section to empty/blank.');
+            return false;
+        }
+        if (rsno2eHasAny &&
+            (getSelectCurrentValue('rsne-group-cipher3') !== getSelectCurrentValue('rsne-group-cipher') ||
+             getSelectCurrentValue('group_mgmt_cipher3') !== getSelectCurrentValue('rsne-group-mgmt-cipher'))) {
+            alert('RSNO2E section validation failed:\n\n' +
+                  'Group Cipher and Group Mgmt Cipher must match the RSNE section.');
+            return false;
+        }
+
+        return true;
+    }
+
+    function validate_all()
+    {
+        if (validate_al_mac() &&
+            validate_ssid() &&
+            validate_security() &&
+            validate_mld_id() &&
+            validate_rsn_sections() ){
+
+            var authSel = document.getElementById('add_bss_auth_mode_sel');
+            var mrsnoHidden = document.getElementById('mrsno_value_hidden');
+            var combinedHidden = document.getElementById('auth_mrsno_combined_hidden');
+            if (authSel && mrsnoHidden && combinedHidden) {
+                var authVal = parseInt(authSel.value, 16) || 0;
+                var mrsnoVal = parseInt(mrsnoHidden.value, 16) || 0;
+                var combined = authVal | mrsnoVal;
+                combinedHidden.value = '0x' + combined.toString(16).toUpperCase().padStart(4, '0');
+            }
+            var fhChbox = document.getElementById('add_bss_fh_cbox');
+            var fhHdInp = document.getElementById('add_bss_fh_hid_inp');
+            var bhChbox = document.getElementById('add_bss_bh_cbox');
+            var bhHdInp = document.getElementById('add_bss_bh_hid_inp');
+            var isSsidHiddenChbox = document.getElementById('add_bss_is_ssid_hidden_cbox');
+            var isSsidHiddenHdInp = document.getElementById('add_bss_is_ssid_hidden_hid_inp');
+            var pvLanChBox = document.getElementById('add_bss_pvlan_cbox');
+            var pvLanHdInp = document.getElementById('add_bss_prim_vlan_hid_inp');
+            var defPcpHdInp = document.getElementById('add_bss_def_pcp_hid_inp');
+            fhChbox.checked ? fhHdInp.value = "1" : fhHdInp.value = "0";
+            bhChbox.checked ? bhHdInp.value = "1" : bhHdInp.value = "0";
+            isSsidHiddenChbox.checked ? isSsidHiddenHdInp.value = "Y" : isSsidHiddenHdInp.value = "N";
+            if(pvLanChBox.checked){
+                pvLanHdInp.value = "pvid";
+                defPcpHdInp.value = document.getElementById('add_bss_def_pcp').value;
+            }
+            else{
+                pvLanHdInp.value = "N/A";
+                defPcpHdInp.value = "N/A";
+            }
+            var tmpVal = document.getElementById("add_bss_def_pcp");
+            if(tmpVal.disabled == false && (isNaN(tmpVal.value) || parseInt(tmpVal.value) < 0 || parseInt(tmpVal.value) > 7)){
+                alert("Default PCP is incorrect!\nPlease enter a value between 0 to 7.");
+                document.getElementById("add_bss_def_pcp").focus();
+                document.getElementById("add_bss_def_pcp").select();
+                return false;
+            }
+            tmpVal = document.getElementById("add_bss_fh_vlan_id");
+            if(isNaN(tmpVal.value) || parseInt(tmpVal.value) < 3 || parseInt(tmpVal.value) > 4095){
+                alert("FH Vlan ID is incorrect!\nPlease enter a value between 3 to 4094.");
+                document.getElementById("add_bss_fh_vlan_id").focus();
+                document.getElementById("add_bss_fh_vlan_id").select();
+                return false;
+            }
+            document.getElementById('bss_cfgs_display').style.display = 'none';
+            document.getElementById('bss_cfgs_loading_div').style.display = '';
+            return true;
+        }
+        return false;
+    }
+
+    function onMrsnoToggle(chk) {
+        var rsnSectionIds = ['rsn_section','rsnoe_section','rsno2e_section','rsnoxe_section'];
+        var mrsnoHidden = document.getElementById('mrsno_value_hidden');
+        if (!mrsnoHidden) return;
+
+        if (chk && chk.checked) {
+            mrsnoHidden.value = '0x0200';
+            // Show RSN related sections
+            for (var i = 0; i < rsnSectionIds.length; i++) {
+                var sec = document.getElementById(rsnSectionIds[i]);
+                if (sec) sec.style.display = '';
+            }
+            // Set rsn*_type hidden fields
+            var rsneType = document.getElementById('rsne_type');
+            if (rsneType) rsneType.value = 'RSNE';
+            var rsnoeType = document.getElementById('rsnoe_type');
+            if (rsnoeType) rsnoeType.value = 'RSNOE';
+            var rsno2eType = document.getElementById('rsno2e_type');
+            if (rsno2eType) rsno2eType.value = 'RSNO2E';
+            var rsnxeType = document.getElementById('rsnxe_type');
+            if (rsnxeType) rsnxeType.value = 'RSNOXE';
+            if (typeof g_currentEditBssInfo === 'object' && g_currentEditBssInfo !== null) {
+            applyRsnConfigFromBssInfo(g_currentEditBssInfo);
+        }
+        } else {
+            mrsnoHidden.value = '0x0000';
+            // Hide and clear RSN related sections
+            for (var j = 0; j < rsnSectionIds.length; j++) {
+                var sec2 = document.getElementById(rsnSectionIds[j]);
+                if (sec2) sec2.style.display = 'none';
+                //clearFormFields(rsnSectionIds[j]);
+            }
+            // Reset Pmkid select elements to first option
+            var pmkidSelect = document.getElementById('pmkid_select');
+            if (pmkidSelect) pmkidSelect.selectedIndex = 0;
+
+            var pmkidSelect2 = document.getElementById('pmkid_select2');
+            if (pmkidSelect2) pmkidSelect2.selectedIndex = 0;
+
+            var pmkidSelect3 = document.getElementById('pmkid_select3');
+            if (pmkidSelect3) pmkidSelect3.selectedIndex = 0;
+        }
+        // Sync AuthModeOnChange once to ensure encryption type and pass-phrase row states are correct
+        var authSel = document.getElementById('add_bss_auth_mode_sel');
+        if (authSel) {
+            AuthModeOnChange(authSel.value);
+        }
+    }
+
+    function toggleMrsnoVisibility() {
+        var bhCheckbox = document.getElementById('add_bss_bh_cbox');
+        var mrsnoRow = document.getElementById('mrsno_row');
+        var mrsnoCheckbox = document.getElementById('mrsno_checkbox');
+
+        if (bhCheckbox && mrsnoRow) {
+            if (bhCheckbox.checked) {
+                // Hide MRSNO when Back-haul BSS Support is checked
+                mrsnoRow.style.display = 'none';
+                // Uncheck and disable MRSNO
+                if (mrsnoCheckbox) {
+                    mrsnoCheckbox.checked = false;
+                    onMrsnoToggle(mrsnoCheckbox);
+                }
+            } else {
+                // Show MRSNO when Back-haul BSS Support is unchecked
+                mrsnoRow.style.display = '';
+            }
+        }
+    }
+
+    function rsn_data_processing() {
+        var rsneHasData = false;
+        var rsnoeHasData = false;
+        var rsno2eHasData = false;
+        var rsnxeHasData = false;
+
+        syncRsnOverrideGroupCiphers();
+
+        var multiSelects = [
+            {id: 'rsne-group-cipher', hidden: 'group_cipher_hidden'},
+            {id: 'rsne-pairwise-cipher', hidden: 'rsn_pairwise_cipher_hidden'},
+            {id: 'rsne-key-mgmt', hidden: 'wpa_key_mgmt_hidden'},
+            {id: 'rsne-capability', hidden: 'rsn_cap_hidden'},
+            {id: 'rsne-group-mgmt-cipher', hidden: 'group_mgmt_cipher_hidden'},
+            {id: 'rsn_override_pairwise_cipher', hidden: 'rsn_override_pairwise_cipher_hidden'},
+            {id: 'rsn_override_key_mgmt', hidden: 'rsn_override_key_mgmt_hidden'},
+            {id: 'rsne-group-cipher2', hidden:'group_data_cipher1_hidden'},
+            {id: 'rsne-capability2', hidden: 'rsn_cap2_hidden'},
+            {id: 'group_mgmt_cipher2', hidden: 'group_mgmt_cipher2_hidden'},
+            {id: 'rsne-group-cipher3', hidden: 'group_data_cipher2_hidden'},
+            {id: 'override2_rsn_pairwise_cipher', hidden: 'override2_rsn_pairwise_cipher_hidden'},
+            {id: 'rsn_override2_key_mgmt', hidden: 'rsn_override2_key_mgmt_hidden'},
+            {id: 'rsne-capability3', hidden: 'rsn_cap3_hidden'},
+            {id: 'group_mgmt_cipher3', hidden: 'group_mgmt_cipher3_hidden'},
+        ];
+        for (var i = 0; i < multiSelects.length; i++) {
+            var select = document.getElementById(multiSelects[i].id);
+            var selected = [];
+            if (select) {
+                for (var j = 0; j < select.options.length; j++) {
+                    if (select.options[j].selected && select.options[j].value !== "") {
+                        selected.push(select.options[j].value);
+                    }
+                }
+
+                if (selected.length > 0) {
+                    if (i >= 0 && i <= 4) rsneHasData = true;
+                    else if (i >= 5 && i <= 9) rsnoeHasData = true;
+                    else if (i >= 10 && i <= 14) rsno2eHasData = true;
+                }
+
+                var joinedVal = selected.join(' ');
+                var hiddenTarget = document.getElementById(multiSelects[i].hidden);
+                if (hiddenTarget) {
+                    hiddenTarget.value = (selected.length === 0 || joinedVal === "") ? " " : joinedVal;
+                }
+                var id = multiSelects[i].id;
+                var cntMap = {
+                    'rsne-pairwise-cipher': 'rsn_pairwise_cipher_cnt',
+                    'rsne-key-mgmt': 'wpa_key_mgmt_cnt',
+                    'rsn_override_pairwise_cipher': 'rsn_override_pairwise_cipher_cnt',
+                    'rsn_override_key_mgmt': 'rsn_override_key_mgmt_cnt',
+                    'override2_rsn_pairwise_cipher': 'override2_rsn_pairwise_cipher_cnt',
+                    'rsn_override2_key_mgmt': 'rsn_override2_key_mgmt_cnt'
+                };
+
+                if (cntMap[id]) {
+                    var cntInput = document.getElementById(cntMap[id]);
+                    if (cntInput) {
+                        if (selected.length === 0) {
+                            cntInput.value = ' ';
+                        } else {
+                            cntInput.value = selected.length.toString();
+                        }
+                    }
+                }
+
+                if (id === 'rsne-capability' || id === 'rsne-capability2' || id === 'rsne-capability3') {
+                    // Processing of MFPC/MFPR options
+                    var mfpcSelected = false;
+                    var mfprSelected = false;
+                    for (var k = 0; k < select.options.length; k++) {
+                        if (select.options[k].selected) {
+                            if (select.options[k].value === 'MFPC') mfpcSelected = true;
+                            if (select.options[k].value === 'MFPR') mfprSelected = true;
+                        }
+                    }
+                    var capValue = '';
+                    if (mfpcSelected && mfprSelected) {
+                        capValue = '0xC000';
+                    } else if (mfpcSelected) {
+                        capValue = '0x8000';
+                    } else if (mfprSelected) {
+                        capValue = '0x4000';
+                    } else {
+                        capValue = ' ';
+                    }
+                    document.getElementById(multiSelects[i].hidden).value = capValue;
+                }
+
+            }
+        }
+        var extCapCheckbox = document.getElementById('extended_rsn_cap');
+        var extCapHidden   = document.getElementById('extended_rsn_cap_hidden');
+        if (extCapHidden) {
+            if (extCapCheckbox && extCapCheckbox.checked) {
+                extCapHidden.value = '0x20';
+                rsnxeHasData = true;
+            } else {
+                extCapHidden.value = ' ';
+                rsnxeHasData = false;
+            }
+        }
+        var rsneTypeInp = document.getElementById('rsne_type');
+        if (rsneTypeInp) rsneTypeInp.value = rsneHasData ? 'RSNE' : ' ';
+
+        var rsnoeTypeInp = document.getElementById('rsnoe_type');
+        if (rsnoeTypeInp) rsnoeTypeInp.value = rsnoeHasData ? 'RSNOE' : ' ';
+
+        var rsno2eTypeInp = document.getElementById('rsno2e_type');
+        if (rsno2eTypeInp) rsno2eTypeInp.value = rsno2eHasData ? 'RSNO2E' : ' ';
+
+        var rsnxeTypeInp = document.getElementById('rsnxe_type');
+        if (rsnxeTypeInp) rsnxeTypeInp.value = rsnxeHasData ? 'RSNOXE' : ' ';
+
+        // Process Pmkid select for RSNE (mandatory)
+        // Auto-set to NA when RSNE has data
+        var pmkidSelect = document.getElementById('pmkid_select');
+        var pmkidListHidden = document.getElementById('pmkid_list_hidden');
+        var pmkidCntHidden = document.getElementById('pmkid_cnt_hidden');
+        if (pmkidSelect && pmkidListHidden && pmkidCntHidden) {
+            if (rsneHasData) {
+                pmkidListHidden.value = 'NA';
+                pmkidCntHidden.value = '0';
+            } else {
+                pmkidListHidden.value = pmkidSelect.value;
+                pmkidCntHidden.value = pmkidSelect.value === '' ? ' ' : '0';
+            }
+        }
+
+        // Process Pmkid select for RSNOE
+        // Auto-set to NA when RSNOE has any non-empty field
+        var pmkidSelect2 = document.getElementById('pmkid_select2');
+        var pmkidList2Hidden = document.getElementById('pmkid_list2_hidden');
+        var pmkidCnt2Hidden = document.getElementById('pmkid_cnt2_hidden');
+        if (pmkidSelect2 && pmkidList2Hidden && pmkidCnt2Hidden) {
+            if (rsnoeHasData) {
+                pmkidList2Hidden.value = 'NA';
+                pmkidCnt2Hidden.value = '0';
+            } else {
+                pmkidList2Hidden.value = ' ';
+                pmkidCnt2Hidden.value = ' ';
+            }
+        }
+
+        // Process Pmkid select for RSNO2E
+        // Auto-set to NA when RSNO2E has any non-empty field
+        var pmkidSelect3 = document.getElementById('pmkid_select3');
+        var pmkidList3Hidden = document.getElementById('pmkid_list3_hidden');
+        var pmkidCnt3Hidden = document.getElementById('pmkid_cnt3_hidden');
+        if (pmkidSelect3 && pmkidList3Hidden && pmkidCnt3Hidden) {
+            if (rsno2eHasData) {
+                pmkidList3Hidden.value = 'NA';
+                pmkidCnt3Hidden.value = '0';
+            } else {
+                pmkidList3Hidden.value = ' ';
+                pmkidCnt3Hidden.value = ' ';
+            }
+        }
+
+        return true;
+    }
+
+    function AuthModeOnChange(authModeCode)
+    {
+        var encTypeSel = document.getElementById('add_bss_enc_type_sel');
+        var row  = document.getElementById('key');
+        switch(authModeCode){
+            case "0x0001":  // OPEN
+                if (!row.classList.contains("hidden")) {
+                    row.classList.add("hidden");
+                }
+                for (var idx=0; idx < encTypeSel.length; idx++) {
+                    // NONE
+                    if (encTypeSel.options[idx].value == '0x0001'){
+                        encTypeSel.options[idx].selected = true;
+                        encTypeSel.options[idx].disabled = false;
+                    }
+                    else{
+                        encTypeSel.options[idx].selected = false;
+                        encTypeSel.options[idx].disabled = true;
+                    }
+                }
+                break;
+            case "0x1000":
+            case "0x2000":
+                if (!row.classList.contains("hidden")) {
+                    row.classList.add("hidden");
+                }
+                for (var idx=0; idx < encTypeSel.length; idx++) {
+                    // AES
+                    if (encTypeSel.options[idx].value == '0x0008'){
+                        encTypeSel.options[idx].selected = true;
+                        encTypeSel.options[idx].disabled = false;
+                    }
+                    else{
+                        encTypeSel.options[idx].selected = false;
+                        encTypeSel.options[idx].disabled = true;
+                    }
+                }
+                break;
+            case "0x0020":
+            case "0x0040":
+            case "0x0060":
+            case "0x0100":
+            case "0x0120":
+            case "0x0140":
+            case "0x0160":
+            case "0x0180":
+            case "0x01A0":
+            case "0x01C0":
+            case "0x01E0":
+            case "0x00A0":
+            case "0x00C0":
+            case "0x00E0":  // WPA2 - Personal
+                if (row.classList.contains("hidden")) {
+                    row.classList.remove("hidden");
+                }
+                for (var idx=0; idx < encTypeSel.length; idx++) {
+                    // AES
+                    if (encTypeSel.options[idx].value == '0x0008'){
+                        encTypeSel.options[idx].selected = true;
+                        encTypeSel.options[idx].disabled = false;
+                    }
+                    else{
+                        encTypeSel.options[idx].selected = false;
+                        encTypeSel.options[idx].disabled = true;
+                    }
+                }
+                break;
+            default:
+                console.log("AuthModeOnChange: unknown Authentication Code: ",authModeCode);
+        }
+        EncryptionTypeOnChange(encTypeSel.value);
+    }
+
+    function CheckWPA3Setting()
+    {
+        /* function to disable WPA3 Sae only if front haul support is enabled */
+        var checkBox = document.getElementById("add_bss_fh_cbox").checked;
+        var authModeSel = document.getElementById('add_bss_auth_mode_sel');
+        for (var idx=0; idx < authModeSel.length; idx++) {
+            if (authModeSel.options[idx].value == "0x0040"){
+                break;
+            }
+        }
+        if(checkBox){
+            authModeSel.options[idx].disabled = true;
+            var WPA3SAE = document.getElementById("add_bss_auth_mode_sel").options[idx].selected;
+            if(WPA3SAE){
+                document.getElementById("add_bss_auth_mode_sel").options[idx].selected = false;
+                document.getElementById("add_bss_auth_mode_sel").options[idx+1].selected = true;
+            }
+        }
+        else{
+            document.getElementById("add_bss_auth_mode_sel").options[idx].disabled = false;
+        }
+    }
+
+    function EncryptionTypeOnChange(encType)
+    {
+        var passPhraseInp = document.getElementById('add_bss_pass_phrase_inp_text');
+        var authModeSel = document.getElementById('add_bss_auth_mode_sel').value;
+        // passPhraseInp.value = '';
+		        switch(encType){
+            case "0x0001": // NONE
+                passPhraseInp.parentNode.parentNode.style.display = 'none';
+                break;
+            case "0x0008": // AES
+                passPhraseInp.parentNode.parentNode.style.display = '';
+                break;
+            default:
+                return "Unknown Encryption Code: " + encType;
+        }
+    }
+
+    function addNewBssCfgs()
+    {
+        document.getElementById('add_bss_cfgs_form').style.display = '';
+        document.getElementById('add_bss_cfgs_fields_tbody').style.display = 'none';
+        var alMacInp = document.getElementById('add_bss_almac_inp_text');
+        alMacInp.value = '';
+        alMacInp.readOnly = false;
+        var bandSel = document.getElementById('add_bss_band_sel');
+        for (var idx=0; idx < bandSel.length; idx++) {
+            bandSel.options[idx].disabled = false;
+        }
+        bandSel.selectedIndex = 0;
+        document.getElementById('add_bss_cfgs_validate_almac_band_div').style.display = '';
+        document.getElementById('add_bss_cfgs_form_submit_div').style.display = 'none';
+    }
+
+    function addBssPreConditionCheck()
+    {
+        var bandSel = document.getElementById('add_bss_band_sel');
+        var alMacInp = document.getElementById('add_bss_almac_inp_text');
+        if (!validate_al_mac()) {
+            return;
+        }
+        addBssCfg(alMacInp.value,bandSel.value);
+    }
+
+    function addBssCfg(alMac,band)
+    {
+        /* Value of __IS_EDIT should be set to 1 only by onClick Edit button Action. */
+        document.getElementById('edit_bss_hid_inp').value = "0";
+
+        get_key_mgmt_list();
+        document.getElementById('edit_bss_id').value = "0";
+        document.getElementById('edit_bss_ssid_hid_inp').value = '';
+        document.getElementById('edit_bss_auth_mode_hid_inp').value = '';
+        document.getElementById('edit_bss_enc_type_hid_inp').value = '';
+        document.getElementById('edit_bss_pass_phrase_hid_inp').value = '';
+        document.getElementById('edit_bss_bh_support_hid_inp').value = '';
+        document.getElementById('edit_bss_fh_support_hid_inp').value = '';
+        document.getElementById('edit_bss_is_ssid_hidden_hid_inp').value = '';
+        document.getElementById('edit_bss_fh_vlan_hidden_hid_inp').value = '';
+        document.getElementById('edit_bss_prim_vlan_hidden_hid_inp').value = '';
+        document.getElementById('edit_bss_def_pcp_hidden_hid_inp').value = '';
+        document.getElementById('bss_cfgs_display').style.display = 'none';
+        document.getElementById('bss_cfgs_loading_div').style.display = '';
+        XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "validate_add_easymesh_bss_req")%>/' + alMac + '/' + band, null,
+            function(x)
+            {
+                try{
+                    var r = JSON.parse(x.response);
+                    if(r['status'] == 'SUCCESS'){
+                        // Store htmode for validation
+                        g_currentBandHtmode = r['htmode'] || "";
+                        document.getElementById('add_bss_cfgs_form').style.display = '';
+                        document.getElementById('add_bss_cfgs_fields_tbody').style.display = '';
+                        var alMacInp = document.getElementById('add_bss_almac_inp_text');
+                        alMacInp.value = alMac;
+                        alMacInp.readOnly = true;
+                        var bandSel = document.getElementById('add_bss_band_sel');
+                        for (var idx=0; idx < bandSel.length; idx++) {
+                            if (bandSel.options[idx].value == band){
+                                bandSel.options[idx].selected = true;
+                                bandSel.options[idx].disabled = false;
+                            }
+                            else{
+                                bandSel.options[idx].selected = false;
+                                bandSel.options[idx].disabled = true;
+                            }
+                        }
+                        document.getElementById('add_bss_ssid_inp_text').value = '';
+                        if (band == "13x") {
+                            document.getElementById("add_bss_auth_mode_sel").value = "0x0040";
+                        }else{
+                            document.getElementById('add_bss_auth_mode_sel').selectedIndex = 0;
+                        }
+                        document.getElementById('add_bss_enc_type_sel').selectedIndex = 0;
+                        document.getElementById('add_bss_pass_phrase_inp_text').value = '';
+                        document.getElementById('add_bss_bh_cbox').checked = false;
+                        document.getElementById('add_bss_fh_cbox').checked = false;
+                        document.getElementById('add_bss_is_ssid_hidden_cbox').checked = false;
+                        document.getElementById('add_bss_fh_vlan_id').value = 4094;
+                        document.getElementById('add_bss_pvlan_cbox').checked = false;
+                        document.getElementById('add_bss_def_pcp').value = 'N/A';
+
+                        // Reset MRSNO checkbox and hidden value
+                        var mrsnoCheckbox = document.getElementById('mrsno_checkbox');
+                        var mrsnoHidden = document.getElementById('mrsno_value_hidden');
+                        if (mrsnoCheckbox) {
+                            mrsnoCheckbox.checked = false;
+                        }
+                        if (mrsnoHidden) {
+                            mrsnoHidden.value = '0x0000';
+                        }
+                        // Hide RSN sections by default
+                        onMrsnoToggle(mrsnoCheckbox);
+
+                        AuthModeOnChange(document.getElementById('add_bss_auth_mode_sel').value);
+                        document.getElementById('add_bss_cfgs_validate_almac_band_div').style.display = 'none';
+                        document.getElementById('add_bss_cfgs_form_submit_div').style.display = '';
+                        fh_change()
+                        toggleMrsnoVisibility()
+                    }
+                    else{
+                        alert('No more BSS could be added in ' +
+                            (band == '8x' ? '2G' : band == '11x' ? '5GL' : '5GH') +
+                            ' band of Device with AL-MAC ' + alMac + ' !\nStatus: ' + r['status']);
+                        location.reload(true);
+                    }
+                }
+                catch(e){
+                    alert("Failed to add a new BSS!\nERROR: Incorrect response received!");
+                    console.log("Failed to add a new BSS!\nERROR: [" + e.name + "] " + e.message);
+                    location.reload(true);
+                }
+                finally{
+                    document.getElementById('bss_cfgs_display').style.display = '';
+                    document.getElementById('bss_cfgs_loading_div').style.display = 'none';
+                }
+            }
+        );
+        var is_6G=document.querySelectorAll(".no_need_6g");
+        var is_only_6G=document.querySelectorAll(".only_need_6g");
+        if (band == "13x") {
+            for(let i=0; i<is_6G.length; i++){
+                is_6G[i].style.display = "none";
+            }
+            for (let i = 0; i < is_only_6G.length; i++) {
+                is_only_6G[i].style.display = "";
+            }
+        }else{
+            for(let i=0; i<is_6G.length; i++){
+                is_6G[i].style.display = "";
+            }
+            for(let i=0; i<is_only_6G.length; i++){
+                is_only_6G[i].style.display = "none";
+            }
+
+        }
+    }
+
+    function editBssCfg(alMac,band,bssInfoGrpObj,btnIdStr)
+    {
+        var bssInfo;
+        var bssIdx;
+        if(typeof(btnIdStr) == 'string'){
+            var bssIdxArr = btnIdStr.match(/\d{1,}$/);
+            if(bssIdxArr){
+                bssIdx = bssIdxArr[0];
+            }
+        }
+        if(typeof(bssIdx) == 'string' && typeof(bssInfoGrpObj) == 'object'){
+            bssInfo = bssInfoGrpObj[bssIdx];
+        }
+        if(typeof(bssInfo) != 'object' ||
+            !bssInfo.hasOwnProperty('ssid') ||
+            !bssInfo.hasOwnProperty('authMode') ||
+            !bssInfo.hasOwnProperty('encType') ||
+            !bssInfo.hasOwnProperty('passPhrase') ||
+            !bssInfo.hasOwnProperty('isBhBssSupported') ||
+            !bssInfo.hasOwnProperty('isFhBssSupported') ||
+            !bssInfo.hasOwnProperty('isHidden') ||
+            !bssInfo.hasOwnProperty('fhVlanId') ||
+            !bssInfo.hasOwnProperty('primVlan') ||
+            !bssInfo.hasOwnProperty('defPCP')){
+            alert('BSS could not be edited!\nIt does not have all required information to edit!');
+            location.reload(true);
+            return;
+        }
+
+        // Fetch htmode for the band
+        XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "validate_add_easymesh_bss_req")%>/' + alMac + '/' + band, null,
+            function(x) {
+                try {
+                    var r = JSON.parse(x.response);
+                    if (r['status'] == 'SUCCESS' && r['htmode']) {
+                        g_currentBandHtmode = r['htmode'];
+                    } else {
+                        g_currentBandHtmode = "";
+                    }
+                } catch(e) {
+                    g_currentBandHtmode = "";
+                }
+            }
+        );
+
+        document.getElementById('add_bss_cfgs_form').style.display = '';
+        document.getElementById('add_bss_cfgs_fields_tbody').style.display = '';
+        var alMacInp = document.getElementById('add_bss_almac_inp_text');
+        alMacInp.value = alMac;
+        alMacInp.readOnly = true;
+        var bandSel = document.getElementById('add_bss_band_sel');
+        for (var idx=0; idx < bandSel.length; idx++) {
+            if (bandSel.options[idx].value == band){
+                bandSel.options[idx].selected = true;
+                bandSel.options[idx].disabled = false;
+            }
+            else{
+                bandSel.options[idx].selected = false;
+                bandSel.options[idx].disabled = true;
+            }
+        }
+        document.getElementById('add_bss_ssid_inp_text').value = bssInfo['ssid'];
+        var authModeSel = document.getElementById('add_bss_auth_mode_sel');
+        for (var idx=0; idx < authModeSel.length; idx++) {
+            if (authModeSel.options[idx].value == bssInfo['authMode']){
+                authModeSel.options[idx].selected = true;
+            }
+            authModeSel.options[idx].disabled = false;
+        }
+        AuthModeOnChange(authModeSel.value);
+        var encTypeSel = document.getElementById('add_bss_enc_type_sel');
+        for (var idx=0; idx < encTypeSel.length; idx++) {
+            if (encTypeSel.options[idx].value == bssInfo['encType']){
+                encTypeSel.options[idx].selected = true;
+                encTypeSel.options[idx].disabled = false;
+            }
+        }
+        EncryptionTypeOnChange(encTypeSel.value);
+        // Populate Pass-phrase field only when EncryptionType is not NONE.
+        if(encTypeSel.value != '0x0001' || encTypeSel.value != '0x1000' || encTypeSel.value != '0x2000'){
+            document.getElementById('add_bss_pass_phrase_inp_text').value = bssInfo['passPhrase'];
+        }
+        document.getElementById('add_bss_is_ssid_hidden_cbox').checked = (bssInfo['isHidden'] == 'Y') ? true : false;
+        document.getElementById('add_bss_bh_cbox').checked = (parseInt(bssInfo['isBhBssSupported']) == 1) ? true : false;
+        document.getElementById('add_bss_fh_cbox').checked = (parseInt(bssInfo['isFhBssSupported']) == 1) ? true : false;
+        document.getElementById('add_bss_fh_vlan_id').value = bssInfo['fhVlanId'];
+        document.getElementById('add_bss_pvlan_cbox').checked = bssInfo['primVlan'] == "pvid" ? true : false;
+        if(bssInfo['primVlan'] !== 'pvid'){
+            document.getElementById('add_bss_def_pcp').setAttribute('disabled', true);
+            document.getElementById('add_bss_def_pcp').value = "N/A";
+        }
+        else{
+            document.getElementById('add_bss_def_pcp').removeAttribute('disabled');
+            document.getElementById('add_bss_def_pcp').value = bssInfo['defPCP'];
+        }
+        document.getElementById('add_mld_group_id').value = bssInfo['mldGroupId'] || "";
+        document.getElementById('mld_group_pre').innerText = bssInfo['mldGroupId'] || "";
+
+        /* Value of __IS_EDIT should be set to 1 here. */
+        document.getElementById('edit_bss_hid_inp').value = "1";
+        document.getElementById('edit_bss_id').value = bssInfo['id'];
+        document.getElementById('edit_bss_ssid_hid_inp').value = bssInfo['ssid'];
+        document.getElementById('edit_bss_auth_mode_hid_inp').value = bssInfo['authMode'];
+        document.getElementById('edit_bss_enc_type_hid_inp').value = bssInfo['encType'];
+        document.getElementById('edit_bss_pass_phrase_hid_inp').value = bssInfo['passPhrase'];
+        document.getElementById('edit_bss_is_ssid_hidden_hid_inp').value = bssInfo['isHidden'];
+        document.getElementById('edit_bss_bh_support_hid_inp').value = bssInfo['isBhBssSupported'];
+        document.getElementById('edit_bss_fh_support_hid_inp').value = bssInfo['isFhBssSupported'];
+        document.getElementById('edit_bss_fh_vlan_hidden_hid_inp').value = bssInfo['fhVlanId'];
+        document.getElementById('edit_bss_prim_vlan_hidden_hid_inp').value = bssInfo['primVlan'];
+        document.getElementById('edit_bss_def_pcp_hidden_hid_inp').value = bssInfo['defPCP'];
+        document.getElementById('add_bss_cfgs_validate_almac_band_div').style.display = 'none';
+        document.getElementById('add_bss_cfgs_form_submit_div').style.display = '';
+        g_currentEditBssInfo = bssInfo;
+        var mrsnoCheckbox = document.getElementById('mrsno_checkbox');
+        var mrsnoHidden   = document.getElementById('mrsno_value_hidden');
+        if (mrsnoCheckbox && mrsnoHidden) {
+        if (bssInfo['mrsno'] == "1") {
+        // Check MRSNO and ensure hidden field is 0x0200
+        mrsnoCheckbox.checked = true;
+        mrsnoHidden.value = "0x0200";
+        // Call onMrsnoToggle once to expand RSN/RSNOE/RSNO2E/RSNOXE sections and keep current configuration
+        onMrsnoToggle(mrsnoCheckbox);
+        } else {
+            // MRSNO not enabled
+            mrsnoCheckbox.checked = false;
+            mrsnoHidden.value = "0x0000";
+            // Optionally call onMrsnoToggle to collapse RSN sections
+            onMrsnoToggle(mrsnoCheckbox);
+        }
+        }
+        get_key_mgmt_list(function() {
+            applyRsnConfigFromBssInfo(bssInfo);
+        });
+        window.scrollTo(0, 0);
+
+        var is_6G=document.querySelectorAll(".no_need_6g");
+        var is_only_6G=document.querySelectorAll(".only_need_6g");
+        if (band == "13x") {
+            for(let i=0; i<is_6G.length; i++){
+                is_6G[i].style.display = "none";
+            }
+            for (let i = 0; i < is_only_6G.length; i++) {
+                is_only_6G[i].style.display = "";
+            }
+        }else{
+            for(let i=0; i<is_6G.length; i++){
+                is_6G[i].style.display = "";
+            }
+            for(let i=0; i<is_only_6G.length; i++){
+                is_only_6G[i].style.display = "none";
+            }
+        }
+
+        fh_change(parseInt(bssInfo['isFhBssSupported'])==1?true:false)
+        toggleMrsnoVisibility()
+
+    }
+
+    function removeBssCfg(alMac,band,bssInfoGrpObj,btnIdStr)
+    {
+        var bssInfo;
+        var bssIdx;
+        if(typeof(btnIdStr) == 'string'){
+            var bssIdxArr = btnIdStr.match(/\d{1,}$/);
+            if(bssIdxArr){
+                bssIdx = bssIdxArr[0];
+            }
+        }
+        if(typeof(bssIdx) == 'string' && typeof(bssInfoGrpObj) == 'object'){
+            bssInfo = bssInfoGrpObj[bssIdx];
+        }
+        if(!alMac ||
+            !band ||
+            !bssInfo ||
+            !bssInfo['ssid'] ||
+            !bssInfo['authMode'] ||
+            !bssInfo['encType'] ||
+            !bssInfo['isBhBssSupported'] ||
+            !bssInfo['isFhBssSupported'] ||
+            !bssInfo['isHidden'] ||
+            !bssInfo.hasOwnProperty('fhVlanId') ||
+            !bssInfo.hasOwnProperty('primVlan') ||
+            !bssInfo.hasOwnProperty('defPCP')){
+            console.log('Failed to remove BSS!\nERROR: BSSINFO is incorrect!\nbssInfo=',bssInfo);
+            alert('Failed to remove BSS!\nERROR: BSSINFO is incorrect!');
+            return;
+        }
+        document.getElementById('bss_cfgs_display').style.display = 'none';
+        document.getElementById('bss_cfgs_loading_div').style.display = '';
+        var devBssObj = {
+            "id": bssInfo['id'],
+            "alMac":alMac,
+            "band":band,
+            "ssid":bssInfo['ssid'],
+            "authMode":bssInfo['authMode'],
+            "encType":bssInfo['encType'],
+            "passPhrase":bssInfo['passPhrase'] || 0,
+            "isBhBssSupported":bssInfo['isBhBssSupported'],
+            "isFhBssSupported":bssInfo['isFhBssSupported'],
+            "isHidden":bssInfo['isHidden'],
+            "fhVlanId":bssInfo['fhVlanId'],
+            "primVlan":bssInfo['primVlan'],
+            "defPCP":bssInfo['defPCP'],
+            "mldGroupId":bssInfo['mldGroupId']
+        };
+        (new XHR()).post("<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "remove_easymesh_bss_cfg_req")%>",
+            devBssObj,
+            function(x) {
+                try{
+                    var res = JSON.parse(x.response);
+                    if(res["status"] == "SUCCESS"){
+                        alert("BSS has been removed successfully.");
+                    }else{
+                        alert("Failed to remove BSS!\nError: " + res["status"]);
+                    }
+                }
+                catch(e){
+                    console.log("Failed to remove BSS!\nError: Incorrect response received!\n",e.name,e.message);
+                    alert("Failed to remove BSS!\nError: Incorrect response received!\n" + e.name + '\n'+ e.message);
+                }
+                finally{
+                    location.reload(true);
+                }
+            }
+        );
+    }
+
+    function get_auth_mode_str(authModeCode)
+    {
+        switch(authModeCode){
+            case "0x0001":
+                return "OPEN";
+            case "0x1000":
+                return "OWE";
+            case "0x2000":
+                return "OWE Transition";
+            case "0x0002":
+                return "WPA - Personal";
+            case "0x0004":
+                return "Shared";
+            case "0x0008":
+                return "WPA - Enterprise";
+            case "0x0010":
+                return "WPA2 - Enterprise";
+            case "0x0020":
+                return "WPA2 - Personal";
+            case "0x0022":
+                return "WPA - Personal/WPA2 - Personal";
+            case "0x0040":
+                return "WPA3 - SAE Only";
+            case "0x0060":
+                return "WPA3 - Transition Mode";
+            case "0x0080":
+                return "DPP Only";
+            case "0x00A0":
+                return "DPP + WPA2 - Personal";
+            case "0x00C0":
+                return "DPP + WPA3 - SAE";
+            case "0x00E0":
+                return "DPP + WPA3 - Transition Mode";
+            case "0x0100":
+                return "SAE-AKM24";
+            case "0x0120":
+                return "SAE-AKM24+WPA2-Personal";
+            case "0x0140":
+                return "SAE-AKM24+WPA3-SAE";
+            case "0x0160":
+                return "SAE-AKM24+WPA3-SAE+WPA2-Personal";
+            case "0x0180":
+                return "DPP+SAE-AKM24";
+            case "0x01A0":
+                return "DPP+SAE-AKM24+WPA2-Personal";
+            case "0x01C0":
+                return "DPP+SAE-AKM24+WPA3-SAE";
+            case "0x01E0":
+                return "DPP+SAE-AKM24+WPA3-SAE+WPA2-Personal";
+            default:
+                return "Unknown Authentication Code: " + authModeCode;
+        }
+    }
+
+    function get_encryption_str(encryptionCode)
+    {
+        switch(encryptionCode){
+            case "0x0001":
+                return "NONE";
+            case "0x0002":
+                return "WEP";
+            case "0x0004":
+                return "TKIP";
+            case "0x0008":
+                return "AES";
+            case "0x000c":
+                return "TKIP/AES";
+            default:
+                return "Unknown Encryption Code: " + encryptionCode;
+        }
+    }
+
+    function get_band_str(bandCode)
+    {
+        switch(bandCode){
+            case "8x":
+                return "2G";
+            case "11x":
+                return "5GL";
+            case "12x":
+                return "5GH";
+            case "13x":
+                return "6G";
+            default:
+                return "Unknown Band Code: " + bandCode;
+        }
+    }
+
+    function set_rowspan_auth_mode(bssInfo)
+    {
+        var rows = 0;
+
+        /* SSID */
+        rows += 1;
+
+        /* AuthMode */
+        rows += 1;
+
+        /* Encryption Type */
+        rows += 1;
+
+        /* Pass-phrase row*/
+        var authMode = bssInfo['authMode'];
+        var encType  = bssInfo['encType'];
+        var is_open  =
+            (authMode == '0x0001' && encType == '0x0001') || /* OPEN/NONE */
+            (authMode == '0x1000' && encType == '0x0008') || /* OWE */
+            (authMode == '0x2000' && encType == '0x0008');   /* OWE Transition */
+
+        if (!is_open) {
+            rows += 1; /* Pass-phrase */
+        }
+
+        /* Hidden */
+        rows += 1;
+
+        /* BH BSS Support */
+        rows += 1;
+
+        /* FH BSS Support */
+        rows += 1;
+
+        /* FH Vlan ID */
+        rows += 1;
+
+        /* Primary Vlan */
+        rows += 1;
+
+        /* Default PCP */
+        rows += 1;
+
+        /* MLD Group ID */
+        if (bssInfo['mldGroupId']) {
+            rows += 1;
+        }
+
+        /* MRSNO(Enable/Disable) */
+        rows += 1;
+
+        /* MRSNO Detail */
+        rows += 1;
+
+        return rows;
+    }
+
+    function calc_band_rowspan(bandBssInfoTbl)
+    {
+        var total = 0;
+        for (var bssIdx in bandBssInfoTbl) {
+            if (bandBssInfoTbl.hasOwnProperty(bssIdx)) {
+                total += set_rowspan_auth_mode(bandBssInfoTbl[bssIdx]);
+            }
+        }
+        /*Add BSS */
+        return total + 1;
+    }
+
+    function draw_bssinfo_cells(alMacTbl, row, alMac, band, bssInfoGrpObj)
+    {
+        var cell,s,t,i;
+        for(var bssIdx in bssInfoGrpObj){
+            if (!bssInfoGrpObj.hasOwnProperty(bssIdx))
+                continue;
+            var bssInfo = bssInfoGrpObj[bssIdx];
+
+            console.log("[draw_bssinfo_cells] alMac=" + alMac +
+                        " band=" + band +
+                        " bssIdx=" + bssIdx +
+                        " ssid=" + bssInfo.ssid +
+                        " mldGroupId=" + bssInfo.mldGroupId +
+                        " id=" + bssInfo.id);
+            var bssRowSpan = set_rowspan_auth_mode(bssInfo);
+            /* BSS-Idx */
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = bssRowSpan;
+            s = document.createElement('STRONG');
+            t = document.createTextNode(get_band_str(band) +' : BSS-' + bssIdx);
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* SSID Key */
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('SSID');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* SSID Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(bssInfo['ssid']);
+            cell.classList.add("ssidV");
+            cell.appendChild(t);
+
+            /* Action Button : Edit BSS */
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = bssRowSpan;
+            i = document.createElement('INPUT');
+            i.setAttribute("class", "cbi-button cbi-button-edit");
+            i.setAttribute("type", "button");
+            i.setAttribute("value", "Edit BSS");
+            i.setAttribute("id", "edit-bss-" + alMac + '-' + band + '-' + bssIdx);
+            if (document.addEventListener) {
+                // For all major browsers, except IE 8 and earlier
+                i.addEventListener("click", function(){editBssCfg(alMac,band,bssInfoGrpObj,this.id);});
+            } else if (document.attachEvent) {
+                // For IE 8 and earlier versions
+                i.attachEvent("onclick", function(){editBssCfg(alMac,band,bssInfoGrpObj,this.id);});
+            }
+            cell.appendChild(i);
+
+            /* Action Button : Remove BSS */
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = bssRowSpan;
+            i = document.createElement('INPUT');
+            i.setAttribute("class", "cbi-button cbi-button-remove");
+            i.setAttribute("type", "button");
+            i.setAttribute("value", "Remove BSS");
+            i.setAttribute("id", "remove-bss-" + alMac + '-' + band + '-' + bssIdx);
+            if (document.addEventListener) {
+                // For all major browsers, except IE 8 and earlier
+                i.addEventListener("click", function(){removeBssCfg(alMac,band,bssInfoGrpObj,this.id);});
+            } else if (document.attachEvent) {
+                // For IE 8 and earlier versions
+                i.attachEvent("onclick", function(){removeBssCfg(alMac,band,bssInfoGrpObj,this.id);});
+            }
+            cell.appendChild(i);
+
+            /* AuthMode Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('Authentication Mode');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* AuthMode Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(get_auth_mode_str(bssInfo['authMode']));
+            cell.appendChild(t);
+
+            /* Encryption Type Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('Encryption Type');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* Encryption Type Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(get_encryption_str(bssInfo['encType']));
+            cell.appendChild(t);
+
+            /* Pass-phrase row will not be inserted for OPEN/NONE Security. */
+            var is_open_row =
+                (bssInfo['authMode'] == '0x0001' && bssInfo['encType'] == '0x0001') ||
+                (bssInfo['authMode'] == '0x1000' && bssInfo['encType'] == '0x0008') ||
+                (bssInfo['authMode'] == '0x2000' && bssInfo['encType'] == '0x0008');
+
+            if (!is_open_row){
+                /* Pass-phrase Key */
+                row = alMacTbl.insertRow(-1);
+                cell = row.insertCell(-1);
+                s = document.createElement('STRONG');
+                t = document.createTextNode('Pass-phrase');
+                s.appendChild(t);
+                cell.appendChild(s);
+
+                /* Pass-phrase Value */
+                cell = row.insertCell(-1);
+                t = document.createTextNode(bssInfo['passPhrase']);
+                cell.appendChild(t);
+            }
+
+            /* Hidden SSID Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('Hidden');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* Hidden SSID Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(bssInfo['isHidden'] == 'Y' ? 'Enabled' : 'Disabled');
+            cell.appendChild(t);
+
+            /* BH BSS Support Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('BH BSS Support');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* BH BSS Support Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(parseInt(bssInfo['isBhBssSupported']) == 1 ? 'Enabled' : 'Disabled');
+            cell.appendChild(t);
+
+            /* FH BSS Support Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('FH BSS Support');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* FH BSS Support Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(parseInt(bssInfo['isFhBssSupported']) == 1 ? 'Enabled' : 'Disabled');
+            cell.appendChild(t);
+
+            /* FH Vlan ID Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('FH Vlan ID');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* FH Vlan ID Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(((parseInt(bssInfo['fhVlanId']) >= 3) && (parseInt(bssInfo['fhVlanId']) <= 4094)) ? parseInt(bssInfo['fhVlanId']) : 'Disabled');
+            cell.appendChild(t);
+
+            /* Primary Vlan Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('Primary Vlan');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* Primary Vlan Value */
+            cell = row.insertCell(-1);
+            if(parseInt(bssInfo['fhVlanId']) == 4095)
+                t = document.createTextNode("Disabled");
+            else
+                t = document.createTextNode(bssInfo['primVlan'] == "pvid" ? "Enabled" : 'N/A');
+            cell.appendChild(t);
+
+            /* Default PCP Key */
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('Default PCP');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* Default PCP Value */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(bssInfo['defPCP']);
+            cell.appendChild(t);
+            if(bssInfo['mldGroupId']){
+                /* Default MLD GROUP ID */
+                row = alMacTbl.insertRow(-1);
+                cell = row.insertCell(-1);
+                s = document.createElement('STRONG');
+                t = document.createTextNode('MLD Group ID');
+                s.appendChild(t);
+                cell.appendChild(s);
+
+                /* Default MLD GROUP ID Value */
+                cell = row.insertCell(-1);
+                t = document.createTextNode(bssInfo['mldGroupId'] || "N/A");
+                cell.appendChild(t);
+            }
+
+            /* MRSNO status */
+            row = alMacTbl.insertRow(-1);
+
+            /* Key: MRSNO */
+            cell = row.insertCell(-1);
+            s = document.createElement('STRONG');
+            t = document.createTextNode('MRSNO Status');
+            s.appendChild(t);
+            cell.appendChild(s);
+
+            /* Value: Enable / Disable by bssInfo['mrsno'] == "1" */
+            cell = row.insertCell(-1);
+            t = document.createTextNode(bssInfo['mrsno'] == "1" ? 'Enabled' : 'Disabled');
+            cell.appendChild(t);
+
+            /* MRSNO Detail row (show all keys for each BSS) */
+            (function(curBssIdx, curBssInfo) {
+                row = alMacTbl.insertRow(-1);
+
+                /* Key column */
+                cell = row.insertCell(-1);
+                s = document.createElement('STRONG');
+                t = document.createTextNode('MRSNO Detail');
+                s.appendChild(t);
+                cell.appendChild(s);
+
+                /* Value column: button + collapsible content */
+                cell = row.insertCell(-1);
+
+                var btn = document.createElement('INPUT');
+                btn.setAttribute('type', 'button');
+                btn.setAttribute('class', 'cbi-button');
+                btn.value = 'Show MRSNO Detail';
+
+                var detailsDiv = document.createElement('DIV');
+                detailsDiv.style.display = 'none';
+                detailsDiv.style.whiteSpace = 'pre';
+                detailsDiv.style.marginTop = '4px';
+
+                var contentLines = [];
+
+                function appendAlways(label, key) {
+                    var val = (key in curBssInfo) ? curBssInfo[key] : '';
+                    if (val === null || val === undefined) {
+                        val = '';
+                    }
+                    if (typeof val === 'string') {
+                        var trimmed = val.replace(/^\s+|\s+$/g, '');
+                        if (trimmed === '') {
+                            val = 'N/A'; // Placeholder, can be changed if needed
+                        } else {
+                            val = trimmed;
+                        }
+                    }
+                    contentLines.push(label + ': ' + val);
+                }
+
+                appendAlways('group_cipher', 'group_cipher');
+                appendAlways('rsn_pairwise_cipher', 'rsn_pairwise_cipher');
+                appendAlways('wpa_key_mgmt', 'wpa_key_mgmt');
+                appendAlways('group_mgmt_cipher', 'group_mgmt_cipher');
+                appendAlways('pmkid_list', 'pmkid_list');
+                appendAlways('pmkid_cnt', 'pmkid_cnt');
+
+                appendAlways('group_data_cipher1', 'group_data_cipher1');
+                appendAlways('rsn_override_pairwise_cipher', 'rsn_override_pairwise_cipher');
+                appendAlways('rsn_override_key_mgmt', 'rsn_override_key_mgmt');
+                appendAlways('group_mgmt_cipher2', 'group_mgmt_cipher2');
+                appendAlways('pmkid_list2', 'pmkid_list2');
+                appendAlways('pmkid_cnt2', 'pmkid_cnt2');
+
+                appendAlways('group_data_cipher2', 'group_data_cipher2');
+                appendAlways('override2_rsn_pairwise_cipher', 'override2_rsn_pairwise_cipher');
+                appendAlways('rsn_override2_key_mgmt', 'rsn_override2_key_mgmt');
+                appendAlways('group_mgmt_cipher3', 'group_mgmt_cipher3');
+                appendAlways('pmkid_list3', 'pmkid_list3');
+                appendAlways('pmkid_cnt3', 'pmkid_cnt3');
+
+                appendAlways('rsn_cap', 'rsn_cap');
+                appendAlways('rsn_cap2', 'rsn_cap2');
+                appendAlways('rsn_cap3', 'rsn_cap3');
+                appendAlways('extended_rsn_cap', 'extended_rsn_cap');
+
+                detailsDiv.appendChild(document.createTextNode(contentLines.join('\n')));
+
+                btn.onclick = function () {
+                    console.log("[MRSNO toggle] alMac=" + alMac +
+                                " band=" + band +
+                                " bssIdx=" + curBssIdx +
+                                " ssid=" + curBssInfo.ssid +
+                                " mldGroupId=" + curBssInfo.mldGroupId +
+                                " id=" + curBssInfo.id,
+                                "detailsDiv=", detailsDiv,
+                                "btn=", btn);
+                    if (detailsDiv.style.display === 'none') {
+                        detailsDiv.style.display = '';
+                        btn.value = 'Hide MRSNO Detail';
+                    } else {
+                        detailsDiv.style.display = 'none';
+                        btn.value = 'Show MRSNO Detail';
+                    }
+                };
+
+                cell.appendChild(btn);
+                cell.appendChild(document.createElement('BR'));
+                cell.appendChild(detailsDiv);
+
+                row = alMacTbl.insertRow(-1);
+            })(bssIdx, bssInfo);
+        }
+        /* Action Button : Add BSS */
+        cell = row.insertCell(-1);
+        /* (1)BSS-Idx (2)BSS-Key (3)BSS-Value (4)Edit (5)Remove
+         *  First cell is Band and the below Add BSS button will be placed at second cell with colspan of 5.
+         */
+        cell.colSpan = 5;
+        i = document.createElement('INPUT');
+        i.setAttribute("class", "cbi-button cbi-button-add");
+        i.setAttribute("type", "button");
+        i.setAttribute("value", "Add BSS");
+        if (document.addEventListener) {
+            // For all major browsers, except IE 8 and earlier
+            i.addEventListener("click", function(){addBssCfg(alMac,band);});
+        } else if (document.attachEvent) {
+            // For IE 8 and earlier versions
+            i.attachEvent("onclick", function(){addBssCfg(alMac,band);});
+        }
+        cell.appendChild(i);
+    }
+
+    function chk_vlan(len){
+        if(len == 0){
+            document.getElementById("bss_cfgs_info").style.display = "";
+        }
+        else if(len == 1){
+            document.getElementById("bss_cfgs_error").style.display = "none";
+            document.getElementById("bss_cfgs_info").style.display = "none";
+        }
+        else{
+            document.getElementById("bss_cfgs_error").style.display = "";
+            return;
+       }
+    }
+
+    function fh_change(state){
+        var bh_v = state || document.getElementById("add_bss_fh_cbox").checked
+        console.log("fh_change called, bh_v:", bh_v);
+        var is_FH = document.querySelectorAll(".no_need_FH");
+        if(bh_v){
+            document.getElementById("fh_vlan_id").style.display = "";
+            document.getElementById("primary_vlan").style.display = "";
+            document.getElementById("default_pcp").style.display = "";
+            for(let i=0;i<is_FH.length;i++){
+                is_FH[i].hidden = true;
+            }
+        }else{
+            document.getElementById("fh_vlan_id").style.display = "none";
+            document.getElementById("primary_vlan").style.display = "none";
+            document.getElementById("default_pcp").style.display = "none";
+            for(let i=0;i<is_FH.length;i++){
+                is_FH[i].hidden = false;
+            }
+        }
+    }
+
+    function togglePCP(chk){
+        var inpDisabled = document.getElementById('add_bss_def_pcp');
+        var chkInp;
+        if(chk.checked){
+            inpDisabled.removeAttribute('disabled');
+            chkInp = confirm("You have already enabled Primary Vlan. If you persist to enable Primary Vlan here again, the previousone will be cancelled.");
+            if(!chkInp){
+                chk.checked = false;
+                inpDisabled.setAttribute('disabled', true);
+            }
+        }
+        else{
+            alert("You cannot disabled Primary Vlan for this bss. Please enable Primary Vlan of another bss to disable this Primary Vlan.")
+            chk.checked = true;
+        }
+    }
+
+    function draw_easymesh_bss_overview_table(alMac, alMacInfo)
+    {
+        var cfgBssInfoHdrFset = document.getElementById('cfg_bss_info_hdr_fset');
+        var bssCfgOverviewDiv = document.getElementById('bss_overview_div');
+        var alMacTbl = document.createElement("TABLE");
+        alMacTbl.setAttribute("class", "cbi-section-table");
+        alMacTbl.setAttribute("id", "config_bss_info");
+        var row = alMacTbl.insertRow(-1);
+        var cell = row.insertCell(-1);
+        /* (1)Band (2)BSS-Idx (3)BSS-Key (4)BSS-Value (5)Edit (6)Remove */
+        cell.colSpan = 6;
+        cell.style.textAlign = "center";
+        var b = document.createElement('BIG');
+        var s = document.createElement('STRONG');
+        var t = document.createTextNode('AL-MAC: ' + alMac);
+        s.appendChild(t);
+        b.appendChild(s);
+        cell.appendChild(b);
+        var i, alMac8x, alMac11x, alMac12x;
+        var vlan = [];
+        /* 2G Band */
+        if(alMacInfo.hasOwnProperty('8x')){
+            alMac8x = alMacInfo["8x"];
+            for(i=1; i<=Object.keys(alMac8x).length; i++){
+                if(alMac8x[i].primVlan == "pvid")
+                    vlan.push(alMac8x[i].primVlan)
+            }
+            chk_vlan(vlan.length);
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = calc_band_rowspan(alMacInfo['8x']); // One more row is required for 'Add New BSS' button.
+            s = document.createElement('STRONG');
+            t = document.createTextNode('2G');
+            s.appendChild(t);
+            cell.appendChild(s);
+            draw_bssinfo_cells(alMacTbl, row, alMac, '8x', alMacInfo['8x']);
+        }
+        /* 5GL Band */
+        if(alMacInfo.hasOwnProperty('11x')){
+            alMac11x = alMacInfo["11x"];
+            for(i=1; i<=Object.keys(alMac11x).length; i++){
+                if(alMac11x[i].primVlan == "pvid")
+                    vlan.push(alMac11x[i].primVlan)
+            }
+            chk_vlan(vlan.length);
+            row = alMacTbl.insertRow(-1);
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = calc_band_rowspan(alMacInfo['11x']); // One more row is required for 'Add New BSS' button.
+            s = document.createElement('STRONG');
+            t = document.createTextNode('5GL');
+            s.appendChild(t);
+            cell.appendChild(s);
+            draw_bssinfo_cells(alMacTbl, row, alMac, '11x', alMacInfo['11x']);
+        }
+        /* 5GH Band */
+        if(alMacInfo.hasOwnProperty('12x')){
+            alMac12x = alMacInfo["12x"];
+            for(i=1; i<=Object.keys(alMac12x).length; i++){
+                if(alMac12x[i].primVlan == "pvid")
+                    vlan.push(alMac12x[i].primVlan)
+            }
+            row = alMacTbl.insertRow(-1);
+            chk_vlan(vlan.length);
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = calc_band_rowspan(alMacInfo['12x']); // One more row is required for 'Add New BSS' button.
+            s = document.createElement('STRONG');
+            t = document.createTextNode('5GH');
+            s.appendChild(t);
+            cell.appendChild(s);
+            draw_bssinfo_cells(alMacTbl, row, alMac, '12x', alMacInfo['12x']);
+        }
+        /* 6G Band */
+        if(alMacInfo.hasOwnProperty('13x')){
+            alMac13x = alMacInfo["13x"];
+            for(i=1; i<=Object.keys(alMac13x).length; i++){
+                if(alMac13x[i].primVlan == "pvid")
+                    vlan.push(alMac13x[i].primVlan)
+            }
+            row = alMacTbl.insertRow(-1);
+            chk_vlan(vlan.length);
+            cell = row.insertCell(-1);
+            cell.style.verticalAlign  = "middle";
+            cell.rowSpan = calc_band_rowspan(alMacInfo['13x']); // One more row is required for 'Add New BSS' button.
+            s = document.createElement('STRONG');
+            t = document.createTextNode('6G');
+            s.appendChild(t);
+            cell.appendChild(s);
+            draw_bssinfo_cells(alMacTbl, row, alMac, '13x', alMacInfo['13x']);
+        }
+        bssCfgOverviewDiv.appendChild(alMacTbl);
+        cfgBssInfoHdrFset.style.display = '';
+    }
+
+    function get_easymesh_bss_overview_info()
+    {
+        var cfgsJs = {};
+        cfgsJs['distinctAlMacCfgs'] = {};
+        cfgsJs['wildCardAlMacCfgs'] = {};
+        <% if cfgs then %>
+            <% for alMac,alMacTbl in pairs(cfgs['distinctAlMacCfgs']) do %>
+                cfgsJs['distinctAlMacCfgs']['<%=alMac%>'] = {};
+                <% for band,bssInfoTbl in pairs(alMacTbl) do %>
+                    cfgsJs['distinctAlMacCfgs']['<%=alMac%>']['<%=band%>'] = {};
+                    <% for bssIdx,bssInfo in pairs(bssInfoTbl) do %>
+                        cfgsJs['distinctAlMacCfgs']['<%=alMac%>']['<%=band%>']['<%=bssIdx%>'] = {};
+                        <% for k,v in pairs(bssInfo) do %>
+                            cfgsJs['distinctAlMacCfgs']['<%=alMac%>']['<%=band%>']['<%=bssIdx%>']['<%=k%>'] = '<%=v:gsub("\'","\\\'")%>';
+                        <% end %>
+                    <% end %>
+                <% end %>
+            <% end %>
+            <% for alMac,alMacTbl in pairs(cfgs['wildCardAlMacCfgs']) do %>
+                cfgsJs['wildCardAlMacCfgs']['<%=alMac%>'] = {};
+                <% for band,bssInfoTbl in pairs(alMacTbl) do %>
+                    cfgsJs['wildCardAlMacCfgs']['<%=alMac%>']['<%=band%>'] = {};
+                    <% for bssIdx,bssInfo in pairs(bssInfoTbl) do %>
+                        cfgsJs['wildCardAlMacCfgs']['<%=alMac%>']['<%=band%>']['<%=bssIdx%>'] = {};
+                        <% for k,v in pairs(bssInfo) do %>
+                            cfgsJs['wildCardAlMacCfgs']['<%=alMac%>']['<%=band%>']['<%=bssIdx%>']['<%=k%>'] = '<%=v:gsub("\'","\\\'")%>';
+                        <% end %>
+                    <% end %>
+                <% end %>
+            <% end %>
+        <% end %>
+        return cfgsJs;
+    }
+
+    function gen_easymesh_bss_overview_table()
+    {
+        var cfgsJs = get_easymesh_bss_overview_info();
+        var isCfgJsEmpty = true;
+        if(cfgsJs.hasOwnProperty('distinctAlMacCfgs')){
+            for(var alMac in cfgsJs['distinctAlMacCfgs']){
+                draw_easymesh_bss_overview_table(alMac, cfgsJs['distinctAlMacCfgs'][alMac]);
+                isCfgJsEmpty = false;
+            }
+        }
+        if(cfgsJs.hasOwnProperty('wildCardAlMacCfgs')){
+            for(var alMac in cfgsJs['wildCardAlMacCfgs']){
+                draw_easymesh_bss_overview_table(alMac, cfgsJs['wildCardAlMacCfgs'][alMac]);
+                isCfgJsEmpty = false;
+            }
+        }
+        if(isCfgJsEmpty){
+            document.getElementById('cfg_bss_info_hdr_fset').style.display = 'none';
+            document.getElementById('no_bss_cfg_msg_div').style.display = '';
+        }
+    }
+
+    function clearAuthMode()
+    {
+        var authmodeSel = document.getElementById('add_bss_auth_mode_sel');
+        authmodeSel.value="";
+        AuthModeOnChange("");
+    }
+    /*easymesh new feature*/
+    function get_group_chiper_list() {
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "action_get_group_chiper")%>', null, function(x){
+        var group_cipher_list = document.getElementById('rsne-group-cipher');
+        var group_data_cipher1_list = document.getElementById('rsne-group-cipher2');
+        var group_data_cipher2_list = document.getElementById('rsne-group-cipher3');
+        group_data_cipher2_list.innerHTML = '';
+        group_data_cipher1_list.innerHTML = '';
+        group_cipher_list.innerHTML = '';
+        var empty1 = document.createElement('option');
+        empty1.value = '';
+        empty1.text  = ' ';
+        group_cipher_list.appendChild(empty1);
+
+        var empty2 = document.createElement('option');
+        empty2.value = '';
+        empty2.text  = ' ';
+        group_data_cipher1_list.appendChild(empty2);
+
+        var empty3 = document.createElement('option');
+        empty3.value = '';
+        empty3.text  = ' ';
+        group_data_cipher2_list.appendChild(empty3);
+
+        var result = x && x.responseText ? x.responseText : '';
+        if (result) {
+            var dict = JSON.parse(result);
+            var list = dict.group_cipher || [];
+            list.forEach(function(item){
+                var opt1 = document.createElement('option');
+                opt1.value = item;
+                opt1.text = item;
+                group_cipher_list.appendChild(opt1);
+
+                var opt2 = document.createElement('option');
+                opt2.value = item;
+                opt2.text = item;
+                group_data_cipher1_list.appendChild(opt2);
+
+                var opt3 = document.createElement('option');
+                opt3.value = item;
+                opt3.text = item;
+                group_data_cipher2_list.appendChild(opt3);
+            });
+        }
+        syncRsnOverrideGroupCiphers();
+    });
+}
+
+
+    function get_pairwise_cipher_list() {
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "action_get_group_chiper")%>', null, function(x){
+        var pairwise_cipher_list = document.getElementById('rsne-pairwise-cipher');
+        var rsn_override_pairwise_cipher_list = document.getElementById('rsn_override_pairwise_cipher');
+        var override2_rsn_pairwise_cipher_list = document.getElementById('override2_rsn_pairwise_cipher');
+        rsn_override_pairwise_cipher_list.innerHTML = '';
+        override2_rsn_pairwise_cipher_list.innerHTML = '';
+        pairwise_cipher_list.innerHTML = '';
+        var empty1 = document.createElement('option');
+        empty1.value = '';
+        empty1.text  = ' ';
+        pairwise_cipher_list.appendChild(empty1);
+
+        var empty2 = document.createElement('option');
+        empty2.value = '';
+        empty2.text  = ' ';
+        rsn_override_pairwise_cipher_list.appendChild(empty2);
+
+        var empty3 = document.createElement('option');
+        empty3.value = '';
+        empty3.text  = ' ';
+        override2_rsn_pairwise_cipher_list.appendChild(empty3);
+
+        var result = x && x.responseText ? x.responseText : '';
+        if (result) {
+            var dict = JSON.parse(result);
+            var list = dict.pairwise_cipher || [];
+            list.forEach(function(item){
+                var opt1 = document.createElement('option');
+                opt1.value = item;
+                opt1.text = item;
+                pairwise_cipher_list.appendChild(opt1);
+
+                var opt2 = document.createElement('option');
+                opt2.value = item;
+                opt2.text = item;
+                rsn_override_pairwise_cipher_list.appendChild(opt2);
+
+                var opt3 = document.createElement('option');
+                opt3.value = item;
+                opt3.text = item;
+                override2_rsn_pairwise_cipher_list.appendChild(opt3);
+            });
+        }
+    });
+    }
+
+    function get_key_mgmt_list(cb) {
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "action_get_group_chiper")%>', null, function(x){
+        var key_mgmt_list = document.getElementById('rsne-key-mgmt');
+        var rsn_override_key_mgmt_list = document.getElementById('rsn_override_key_mgmt');
+        var rsn_override2_key_mgmt_list = document.getElementById('rsn_override2_key_mgmt');
+        var band = document.getElementById('add_bss_band_sel').value;
+
+        key_mgmt_list.innerHTML = '';
+        rsn_override_key_mgmt_list.innerHTML = '';
+        rsn_override2_key_mgmt_list.innerHTML = '';
+        var empty1 = document.createElement('option');
+        empty1.value = '';
+        empty1.text  = ' ';
+        key_mgmt_list.appendChild(empty1);
+
+        var empty2 = document.createElement('option');
+        empty2.value = '';
+        empty2.text  = ' ';
+        rsn_override_key_mgmt_list.appendChild(empty2);
+
+        var empty3 = document.createElement('option');
+        empty3.value = '';
+        empty3.text  = ' ';
+        rsn_override2_key_mgmt_list.appendChild(empty3);
+        var result = x && x.responseText ? x.responseText : '';
+        if (result) {
+            var dict = JSON.parse(result);
+            var list_rsne = dict.wpa_key_mgmt_rsne || [];
+            var list = dict.wpa_key_mgmt || [];
+
+            list_rsne.forEach(function(item){
+                if (!(band === "13x" && (item === "WPA-PSK" || item === "FT-PSK" || item === "WPA-PSK-SHA256"))) {
+                    var opt1 = document.createElement('option');
+                    opt1.value = item;
+                    opt1.text = item;
+                    key_mgmt_list.appendChild(opt1);
+                }
+            });
+
+            list.forEach(function(item){
+                if (!(band === "13x" && (item === "FT-PSK" || item === "WPA-PSK-SHA256")) &&
+                    item !== "SAE-EXT-KEY") {
+                    var opt2 = document.createElement('option');
+                    opt2.value = item;
+                    opt2.text = item;
+                    rsn_override_key_mgmt_list.appendChild(opt2);
+                }
+
+                if (!(band === "13x" && (item === "FT-PSK" || item === "WPA-PSK-SHA256")) &&
+                    item !== "SAE") {
+                    var opt3 = document.createElement('option');
+                    opt3.value = item;
+                    opt3.text = item;
+                    rsn_override2_key_mgmt_list.appendChild(opt3);
+                }
+            });
+        }
+        syncRsnOverrideGroupCiphers();
+        if (typeof cb === 'function') cb();
+    });
+    }
+
+    function get_group_mgmt_chiper_list() {
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "multi_ap", "action_get_group_chiper")%>', null, function(x){
+        var mgmt_cipher_list = document.getElementById('rsne-group-mgmt-cipher');
+        var group_mgmt_cipher2_list = document.getElementById('group_mgmt_cipher2');
+        var group_mgmt_cipher3_list = document.getElementById('group_mgmt_cipher3');
+        mgmt_cipher_list.innerHTML = '';
+        group_mgmt_cipher2_list.innerHTML = '';
+        group_mgmt_cipher3_list.innerHTML = '';
+         var empty1 = document.createElement('option');
+        empty1.value = '';
+        empty1.text  = ' ';
+        mgmt_cipher_list.appendChild(empty1);
+
+        var empty2 = document.createElement('option');
+        empty2.value = '';
+        empty2.text  = ' ';
+        group_mgmt_cipher2_list.appendChild(empty2);
+
+        var empty3 = document.createElement('option');
+        empty3.value = '';
+        empty3.text  = ' ';
+        group_mgmt_cipher3_list.appendChild(empty3);
+        var result = x && x.responseText ? x.responseText : '';
+        if (result) {
+            var dict = JSON.parse(result);
+            var list = dict.group_mgmt_cipher || [];
+            list.forEach(function(item){
+                var opt1 = document.createElement('option');
+                opt1.value = item;
+                opt1.text = item;
+                mgmt_cipher_list.appendChild(opt1);
+
+                var opt2 = document.createElement('option');
+                opt2.value = item;
+                opt2.text = item;
+                group_mgmt_cipher2_list.appendChild(opt2);
+
+                var opt3 = document.createElement('option');
+                opt3.value = item;
+                opt3.text = item;
+                group_mgmt_cipher3_list.appendChild(opt3);
+            });
+        }
+        syncRsnOverrideGroupCiphers();
+    });
+    }
+
+    function clearFormFields(formId) {
+        var form = document.getElementById(formId);
+        if (!form) return;
+        // clear input
+        var inputs = form.querySelectorAll('input');
+        for (var i = 0; i < inputs.length; i++) {
+            var type = inputs[i].type;
+            if (type === 'checkbox' || type === 'radio') {
+                inputs[i].checked = false;
+            } else {
+                inputs[i].value = '';
+            }
+        }
+        // Clear select elements
+        var selects = form.querySelectorAll('select');
+        for (var i = 0; i < selects.length; i++) {
+            if (selects[i].multiple) {
+                for (var j = 0; j < selects[i].options.length; j++) {
+                    selects[i].options[j].selected = false;
+                }
+            } else{
+            selects[i].selectedIndex = 0;}
+        }
+        // Clear textarea elements
+        var textareas = form.querySelectorAll('textarea');
+        for (var i = 0; i < textareas.length; i++) {
+            textareas[i].value = '';
+        }
+    }
+
+    // Generic select restore: supports both single and multiple selection
+    function setSelectByValues(selectId, values) {
+        var sel = document.getElementById(selectId);
+        if (!sel || values == null) return;
+
+        // Supports string or array. String is split by whitespace, e.g. "CCMP TKIP"
+        if (typeof values === 'string') {
+            values = values.trim() ? values.trim().split(/\s+/) : [];
+        }
+
+        var valueSet = {};
+        for (var i = 0; i < values.length; i++) {
+            valueSet[String(values[i])] = true;
+        }
+
+        // Single select: choose only the first matched value
+        if (!sel.multiple) {
+            var firstMatchedIndex = -1;
+            for (var j = 0; j < sel.options.length; j++) {
+                var opt = sel.options[j];
+                if (valueSet[String(opt.value)]) {
+                    firstMatchedIndex = j;
+                    break;
+                }
+            }
+            if (firstMatchedIndex >= 0) {
+                sel.selectedIndex = firstMatchedIndex;
+            }
+        } else {
+            for (var k = 0; k < sel.options.length; k++) {
+                var opt2 = sel.options[k];
+                opt2.selected = !!valueSet[String(opt2.value)];
+            }
+        }
+    }
+
+
+/* Restore RSN capability multi-select MFPC/MFPR from hexadecimal rsn_cap/rsn_cap2/rsn_cap3 value */
+    function setRsnCapabilitySelect(selectId, capValue) { // mtk_wifi_map_bss_cfg_renew.htm
+        var select = document.getElementById(selectId);
+        if (!select) return;
+
+        // First, clear all selections
+        for (var i = 0; i < select.options.length; i++) {
+            select.options[i].selected = false;
+        }
+
+        if (!capValue) return;
+
+        capValue = capValue.toString();
+
+        var mfpcSelected = false;
+        var mfprSelected = false;
+
+        if (capValue === '0xC000') {
+            mfpcSelected = true;
+            mfprSelected = true;
+        } else if (capValue === '0x8000') {
+            mfpcSelected = true;
+        } else if (capValue === '0x4000') {
+            mfprSelected = true;
+        }
+
+        for (var j = 0; j < select.options.length; j++) {
+            if (select.options[j].value === 'MFPC' && mfpcSelected) {
+                select.options[j].selected = true;
+            }
+            if (select.options[j].value === 'MFPR' && mfprSelected) {
+                select.options[j].selected = true;
+            }
+        }
+    }
+
+    // Restore RSNE/RSNOE/RSNO2E/RSNOXE UI from bssInfo (or other object containing RSN configuration)
+    function applyRsnConfigFromBssInfo(bssInfo) {
+        if (!bssInfo) return;
+        console.log("bssinfo",bssInfo)
+        // RSNE
+        setSelectByValues('rsne-group-cipher',      bssInfo['group_cipher']);
+        setSelectByValues('rsne-pairwise-cipher',   bssInfo['rsn_pairwise_cipher']);
+        setSelectByValues('rsne-key-mgmt',          bssInfo['wpa_key_mgmt']);
+        setSelectByValues('rsne-capability',        bssInfo['rsn_cap']);
+        setSelectByValues('rsne-group-mgmt-cipher', bssInfo['group_mgmt_cipher']);
+
+        // RSNE Pmkid
+        var pmkidSelect = document.getElementById('pmkid_select');
+        if (pmkidSelect && bssInfo['pmkid_list']) {
+            var pmkidVal = bssInfo['pmkid_list'];
+            for (var i = 0; i < pmkidSelect.options.length; i++) {
+                if (pmkidSelect.options[i].value === pmkidVal) {
+                    pmkidSelect.options[i].selected = true;
+                    break;
+                }
+            }
+        }
+
+        // RSNOE
+        setSelectByValues('rsne-group-cipher2',           bssInfo['group_data_cipher1']);
+        setSelectByValues('rsn_override_pairwise_cipher', bssInfo['rsn_override_pairwise_cipher']);
+        setSelectByValues('rsn_override_key_mgmt',        bssInfo['rsn_override_key_mgmt']);
+        setSelectByValues('rsne-capability2',             bssInfo['rsn_cap2']);
+        setSelectByValues('group_mgmt_cipher2',           bssInfo['group_mgmt_cipher2']);
+
+        // RSNOE Pmkid
+        var pmkidSelect2 = document.getElementById('pmkid_select2');
+        if (pmkidSelect2 && bssInfo['pmkid_list2']) {
+            var pmkidVal2 = bssInfo['pmkid_list2'];
+            for (var j = 0; j < pmkidSelect2.options.length; j++) {
+                if (pmkidSelect2.options[j].value === pmkidVal2) {
+                    pmkidSelect2.options[j].selected = true;
+                    break;
+                }
+            }
+        }
+
+        // RSNO2E
+        setSelectByValues('rsne-group-cipher3',             bssInfo['group_data_cipher2']);
+        setSelectByValues('override2_rsn_pairwise_cipher',  bssInfo['override2_rsn_pairwise_cipher']);
+        setSelectByValues('rsn_override2_key_mgmt',         bssInfo['rsn_override2_key_mgmt']);
+        setSelectByValues('rsne-capability3',               bssInfo['rsn_cap3']);
+        setSelectByValues('group_mgmt_cipher3',             bssInfo['group_mgmt_cipher3']);
+
+        // RSNO2E Pmkid
+        var pmkidSelect3 = document.getElementById('pmkid_select3');
+        if (pmkidSelect3 && bssInfo['pmkid_list3']) {
+            var pmkidVal3 = bssInfo['pmkid_list3'];
+            for (var k = 0; k < pmkidSelect3.options.length; k++) {
+                if (pmkidSelect3.options[k].value === pmkidVal3) {
+                    pmkidSelect3.options[k].selected = true;
+                    break;
+                }
+            }
+        }
+        setRsnCapabilitySelect('rsne-capability',  bssInfo['rsn_cap']);
+        setRsnCapabilitySelect('rsne-capability2', bssInfo['rsn_cap2']);
+        setRsnCapabilitySelect('rsne-capability3', bssInfo['rsn_cap3']);
+        syncRsnOverrideGroupCiphers();
+
+
+        // RSNOXE: extended RSN CAP (extended_rsn_cap), e.g. 0x20 means SAE PWE is checked
+        var extCap = bssInfo['extended_rsn_cap'];
+        var extCheckbox = document.getElementById('extended_rsn_cap');
+        if (extCheckbox) {
+            if (extCap === '0x20' || extCap === 0x20 || extCap === 32 ||
+                (typeof extCap === 'string' && extCap.indexOf('0x20') !== -1)) {
+                extCheckbox.checked = true;
+            } else {
+                extCheckbox.checked = false;
+            }
+        }
+    }
+
+    // Clear all selections in RSNE section
+    function clearRsneSection() {
+        var elements = [
+            'rsne-group-cipher',
+            'rsne-pairwise-cipher',
+            'rsne-key-mgmt',
+            'rsne-capability',
+            'rsne-group-mgmt-cipher'
+        ];
+        elements.forEach(function(id) {
+            var elem = document.getElementById(id);
+            if (elem) {
+                if (elem.multiple) {
+                    for (var i = 0; i < elem.options.length; i++) {
+                        elem.options[i].selected = false;
+                    }
+                } else {
+                    elem.selectedIndex = -1;
+                }
+            }
+        });
+        // Clear Pmkid select
+        var pmkidSelect = document.getElementById('pmkid_select');
+        if (pmkidSelect) {
+            pmkidSelect.selectedIndex = 0;
+        }
+        syncRsnOverrideGroupCiphers();
+    }
+
+    // Clear all selections in RSNOE section
+    function clearRsnoeSection() {
+        var elements = [
+            'rsne-group-cipher2',
+            'rsn_override_pairwise_cipher',
+            'rsn_override_key_mgmt',
+            'rsne-capability2',
+            'group_mgmt_cipher2'
+        ];
+        elements.forEach(function(id) {
+            var elem = document.getElementById(id);
+            if (elem) {
+                if (elem.multiple) {
+                    for (var i = 0; i < elem.options.length; i++) {
+                        elem.options[i].selected = false;
+                    }
+                } else {
+                    elem.selectedIndex = -1;
+                }
+            }
+        });
+        // Clear Pmkid select
+        var pmkidSelect2 = document.getElementById('pmkid_select2');
+        if (pmkidSelect2) {
+            pmkidSelect2.selectedIndex = 0;
+        }
+        syncRsnOverrideGroupCiphers();
+    }
+
+    // Clear all selections in RSNO2E section
+    function clearRsno2eSection() {
+        var elements = [
+            'rsne-group-cipher3',
+            'override2_rsn_pairwise_cipher',
+            'rsn_override2_key_mgmt',
+            'rsne-capability3',
+            'group_mgmt_cipher3'
+        ];
+        elements.forEach(function(id) {
+            var elem = document.getElementById(id);
+            if (elem) {
+                if (elem.multiple) {
+                    for (var i = 0; i < elem.options.length; i++) {
+                        elem.options[i].selected = false;
+                    }
+                } else {
+                    elem.selectedIndex = -1;
+                }
+            }
+        });
+        // Clear Pmkid select
+        var pmkidSelect3 = document.getElementById('pmkid_select3');
+        if (pmkidSelect3) {
+            pmkidSelect3.selectedIndex = 0;
+        }
+        syncRsnOverrideGroupCiphers();
+    }
+
+    window.onload = function(){
+        MonCon.ping();
+        gen_easymesh_bss_overview_table();
+        get_group_chiper_list();
+        get_pairwise_cipher_list();
+        get_group_mgmt_chiper_list();
+        get_key_mgmt_list();
+        bindRsnOverrideGroupCipherSync();
+    }
+
+</script>
+
+<%+footer%>

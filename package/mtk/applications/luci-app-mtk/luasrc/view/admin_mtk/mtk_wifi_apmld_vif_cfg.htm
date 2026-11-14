@@ -1,0 +1,1328 @@
+<%+header%>
+<%
+local ctrl_mtkwifi = require("luci.controller.mtkwifi")
+local uciutil = require "luci.util"
+local http = require "luci.http"
+local disp = require "luci.dispatcher"
+local path  = disp.context.path
+local request = disp.context.request
+local uci = require("uci").cursor()
+local new_iface=nil
+local devnames = nil
+local devnames_table={}
+local vifname = nil
+local devs_array={}
+local vif={}
+local authmode=nil
+local diff=ctrl_mtkwifi.cfg_is_changed()
+local selected_devices = {}
+local WscValue = 0
+
+local function split(str, sep)
+    local result = {}
+    if type(str) == "table" then
+        str = table.concat(str, sep)
+    elseif type(str) ~= "string" or not str then
+        return result
+    end
+    for s in string.gmatch(str, "([^"..sep.."]+)") do
+        table.insert(result, s)
+    end
+    return result
+end
+
+if request[4] == "vif_add_intf" then
+    devnames = request[5]
+    for dev in string.gmatch(devnames, '([^,]+)') do
+        table.insert(devnames_table, dev)
+    end
+    new_iface=ctrl_mtkwifi.new_iface(devnames_table,"ap")
+    vifname = new_iface.ifname
+elseif request[4] == "vif_cfg_intf" then
+    devnames = request[5]
+    vifname = request[6]
+end
+
+for dev in string.gmatch(devnames, "([^,]+)") do
+    table.insert(devs_array, dev)
+end
+
+vif=ctrl_mtkwifi.get_iface_config(vifname)
+dev_config=ctrl_mtkwifi.get_device_config()
+
+local selected_devices = {}
+if vif and vif["device"] then
+    if type(vif["device"]) == "table" then
+        for _, dev in ipairs(vif["device"]) do
+            table.insert(selected_devices, tostring(dev))
+        end
+    else
+        table.insert(selected_devices, tostring(vif["device"]))
+    end
+end
+
+
+if not vif then
+    vif = setmetatable({}, {
+        __index = function(_, k)
+            return ""
+        end
+    })
+end
+local AuthModes=ctrl_mtkwifi.get_supported_auth_modes(vif["mrsno_enable"])
+local authmode, encrypttype,enterprise= ctrl_mtkwifi.get_iface_auth(vif)
+%>
+
+<script src="/luci-static/resources/monCon.js"></script>
+<script type="text/javascript" src="<%=resource%>/cbi.js?v=git-17.250.41546-90ac861"></script>
+<script type="text/javascript">
+
+
+var refreshWpsTimerId;
+var refreshWpsAjaxFlag = false;
+var sta_list = [];
+
+function hi(to, WPS_state, devname, vifname)
+{
+    var a;
+    var x;
+    var tables = new Array();
+    tables.push("vif-cfg-basic");
+    tables.push("vif-cfg-he_mu");
+    tables.push("vif-cfg-WPS");
+    tables.push("vif-cfg-WPS-Summary");
+    tables.push("vif-cfg-basic-AC");
+
+    <% if request[4] == "vif_cfg_intf" then%>
+        tables.push("vif-cfg-station");
+    <% end %>
+
+    var tabs = new Array();
+    tabs.push("vif-cfg-tab-basic");
+    tables.push("vif-cfg-uhr");
+    tabs.push("vif-cfg-tab-uhr")
+    tabs.push("vif-cfg-tab-he_mu");
+    tabs.push("vif-cfg-tab-WPS");
+    var map_cfgs=1;
+    <% if map_cfgs then %>
+        <% if request[4] == "vif_cfg_intf"then%>
+            tabs.push("vif-cfg-tab-station");
+        <% end %>
+    <% else %>
+        <% if request[4] == "vif_cfg_intf" then%>
+            tabs.push("vif-cfg-tab-station");
+        <% end %>
+    <% end %>
+
+    document.getElementById("__activeTab").value = to;
+    for (var x = 0; x < tables.length; x++)
+    {
+        a = document.getElementById(tables[x]);
+        if (tables[x].indexOf(to) == -1)
+        {
+            if (a) a.style.display = "none";
+        }
+        else
+        {
+            if (a) a.style.display = "";
+        }
+    }
+    for (var y = 0; y < tabs.length; y++)
+    {
+        a = document.getElementById(tabs[y]);
+        if(tabs[y].indexOf(to) == -1)
+        {
+            if (a) a.className = "cbi-tab-disabled";
+        }
+        else
+        {
+            if (a) a.className = "cbi-tab";
+        }
+    }
+    var authModeElem = document.getElementById("AuthMode");
+    var radiusTbody = document.getElementById("RADIUS");
+    if (authModeElem && radiusTbody) {
+        var showModes = ["WPA2", "WPA3", "WPA3-192-bit", "IEEE8021X"];
+        if (showModes.indexOf(authModeElem.value) !== -1) {
+            radiusTbody.style.display = "";
+        } else {
+            radiusTbody.style.display = "none";
+        }
+    }
+
+    updateOweTransitionVisibility();
+
+    <% if request[4] == "vif_cfg_intf" then%>
+        XHR.halt();
+        if(to == "station"){
+            var stationTable = document.getElementById('vif-cfg-station');
+            if (stationTable) {
+                console.log("status:", stationTable.style.display);
+                console.log("rows:", stationTable.rows.length);
+            }
+            InitStaList(devname, vifname);
+        }
+    <% end %>
+}
+
+    // Generic checkbox sync function
+    function syncCheckboxValue(checkboxId, hiddenInputId) {
+        var checkbox = document.getElementById(checkboxId);
+        var hiddenInput = document.getElementById(hiddenInputId);
+        if (checkbox && hiddenInput) {
+            hiddenInput.value = checkbox.checked ? "1" : "0";
+            console.log("[SYNC] " + hiddenInputId + " updated to:", hiddenInput.value);
+        }
+    }
+
+    // Sync all checkboxes with hidden inputs
+    function syncAllCheckboxes() {
+        var checkboxMappings = [
+            {checkbox: "hidden_checkbox", hidden: "hidden_value"},
+            {checkbox: "isolate_checkbox", hidden: "isolate_value"},
+            {checkbox: "wmm_checkbox", hidden: "wmm_value"}
+        ];
+
+        checkboxMappings.forEach(function(mapping) {
+            syncCheckboxValue(mapping.checkbox, mapping.hidden);
+        });
+    }
+
+    function validate_vif_form()
+    {
+        // Sync all checkbox values to hidden inputs before submit
+        syncAllCheckboxes();
+
+        // Validate UHR SMD Addr
+        var uhr_smd_addr = document.getElementsByName("uhr_smd_addr")[0];
+        if (uhr_smd_addr) {
+            var mac = uhr_smd_addr.value.trim();
+            var macRegex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+            if (mac.length > 0 && !macRegex.test(mac)) {
+                alert("UHR SMD Addr format error, please enter a valid MAC address (e.g. 00:11:22:33:44:55)");
+                uhr_smd_addr.focus();
+                return false;
+            }
+        }
+
+        // Validate BA Win size
+        var ht_bawinsize = document.getElementsByName("ht_bawinsize")[0];
+        if (ht_bawinsize) {
+            var val = parseInt(ht_bawinsize.value, 10);
+            var min = 1;
+            var max = 1024;
+            // AX board max 256
+            if (typeof ctrl_mtkwifi !== "undefined" && ctrl_mtkwifi.ax_board && ctrl_mtkwifi.ax_board()) {
+                max = 256;
+            }
+            if (isNaN(val) || val < min || val > max) {
+                alert("BA Win size out of range, please enter " + min + " ~ " + max);
+                ht_bawinsize.focus();
+                return false;
+            }
+        }
+
+        // Validate Data Beacon Rate (DTIM)
+        var dtim_period = document.getElementsByName("dtim_period")[0];
+        if (dtim_period) {
+            var val = parseInt(dtim_period.value, 10);
+            if (isNaN(val) || val < 1 || val > 255) {
+                alert("Data Beacon Rate (DTIM) out of range, please enter 1 ~ 255");
+                dtim_period.focus();
+                return false;
+            }
+        }
+
+        // Validate RTS Threshold
+        var rts = document.getElementsByName("rts")[0];
+        if (rts) {
+            var val = parseInt(rts.value, 10);
+            if (isNaN(val) || val < 1 || val > 2347) {
+                alert("RTS Threshold out of range, please enter 1 ~ 2347");
+                rts.focus();
+                return false;
+            }
+        }
+
+        var frag = document.getElementsByName("frag")[0];
+        if (frag) {
+            var val = parseInt(frag.value, 10);
+            if (isNaN(val) || val < 256 || val > 2346) {
+                alert("RTS Threshold out of range, please enter 1 ~ 2347");
+                rts.focus();
+                return false;
+            }
+        }
+
+
+        return true;
+    }
+
+</script>
+<form method="post" name="cbi" action="<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "vif_cfg_apply", devnames, vifname)%>" enctype="multipart/form-data" onsubmit="return validate_vif_form()" autocomplete="off">
+    <input type="hidden" name="devnames" value="<%=devnames%>">
+    <input type="hidden" name="vifname" value="<%=vifname%>">
+    <input type="hidden" name="ifname" value="<%=vifname%>">
+    <input type="hidden" name="__action" value="<%=request[4]%>">
+    <input type="hidden" name="mode" value="ap">
+    <input type="hidden" name="encryption" value="<%=encryption or vif["encryption"]%>">
+    <input type="hidden" name="network" value="lan">
+    <input type="hidden" name="mlo" value="1">
+<% if #devs_array==0 or not vifname then%>
+    <fieldset class="cbi-section">
+    <legend>Interface Not Exist - <%=vifname and devnames.."@"..vifname or devnames%>
+    </legend>
+    </fieldset>
+<% else %>
+    <fieldset class="cbi-section">
+        <legend>Interface Configurations - <%=vifname and devnames.."@"..vifname or devnames%>
+        <% if diff  then %>
+        <span style="color:red;">( <a href="javascript:location.href='<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "wifi_reload", devnames)%>'">Click here</a> to apply changes)</span>
+        <% end %>
+        </legend>
+        <div class="alert-message" id="BusyText_VIF" style="display:none;">
+            <img src="<%=resource%>/icons/loading.gif" alt="" style="vertical-align:middle" />
+            <big><strong>Please wait while the request is being processed.</strong></big>
+        </div>
+        <ul class="cbi-tabmenu">
+            <li class="cbi-tab" id="vif-cfg-tab-basic">
+                <a href="javascript:hi('basic', <%="'"..WscValue.."', '"..devnames.."', '"..vifname.."'"%>);this.blur(); ">Basic</a>
+            </li>
+                <li class="cbi-tab-disabled" id="vif-cfg-tab-he_mu">
+                    <a href="javascript:hi('he_mu', <%="'"..WscValue.."', '"..devnames.."', '"..vifname.."'"%>);this.blur(); ">HE_MU</a>
+                </li>
+            <li class="cbi-tab-disabled" id="vif-cfg-tab-uhr" style="display:none;">
+                <a href="javascript:hi('uhr', <%="'"..WscValue.."', '"..devnames.."', '"..vifname.."'"%>);this.blur(); ">UHR</a>
+            </li>
+            <li class="cbi-tab-disabled" id="vif-cfg-tab-WPS" style="display:none;">
+                <a href="javascript:hi('WPS', <%="'"..WscValue.."', '"..devnames.."', '"..vifname.."'"%>);this.blur(); ">WPS</a>
+            </li>
+            <% if map_cfgs then %>
+                <% if request[4] == "vif_cfg_intf"then%>
+                    <li class="cbi-tab-disabled" id="vif-cfg-tab-station">
+                        <a href="javascript:hi('station', <%="'"..WscValue.."', '"..devnames.."', '"..vifname.."'"%>);this.blur(); ">Stations</a>
+                    </li>
+                <% end %>
+            <% else %>
+                <% if request[4] == "vif_cfg_intf" then%>
+                    <li class="cbi-tab-disabled" id="vif-cfg-tab-station">
+                        <a href="javascript:hi('station', <%="'"..WscValue.."', '"..devnames.."', '"..vifname.."'"%>);this.blur(); ">Stations</a>
+                    </li>
+                <% end %>
+            <% end %>
+        </ul>
+        <input type="hidden" id="__activeTab" value="basic">
+        <table class="cbi-section-table" id="vif-cfg-basic">
+            <tbody id="EASY_MESH_VIF_SETTINGS_TBODY" style="display:none">
+                <tr>
+                    <td>SSID</td>
+                    <td>
+                        <span id="EASY_MESH_SSID_SPAN"></span>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Auth Mode</td>
+                    <td>
+                        <span id="EASY_MESH_AUTH_MODE_SPAN"></span>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Encryption</td>
+                    <td>
+                        <span id="EASY_MESH_ENCRYPTION_SPAN"></span>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Pass-phrase</td>
+                    <td>
+                        <span id="EASY_MESH_PASS_PHRASE_SPAN"></span>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Hidden</td>
+                    <td>
+                        <span id="EASY_MESH_IS_HIDDEN_SSID_SPAN"></span>
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            <tbody id="VIF_CFG_BASIC_SETTINGS">
+                <% if request[4] ~= "vif_cfg_intf" then %>
+                <tr>
+                        <td style="vertical-align:top;">
+                            Mode<span style="color:red">*</span>
+                        </td>
+                        <td>
+                            <label>
+                                <input type="radio" value="ap" checked="checked" />
+                                Ap
+                            </label>
+                            <label>
+                                <input type="radio" value="sta" onclick="onStaModeSelected()" />
+                                Sta
+                            </label>
+                        </td>
+                        <td style="vertical-align:top; color:#888;">
+                            Select mode. Automatically redirect when switching to sta.
+                        </td>
+                    </tr>
+                <% end %>
+                <tr>
+                    <td style="vertical-align:top;">
+                        Links<span style="color:red">*</span>
+                    </td>
+                    <td>
+                        <div id="iface_list"></div>
+                    </td>
+                    <td style="vertical-align:top; color:#888;">
+                        An iface can only join one mldgroup<br>
+                        Cannot select disabled intf
+                    </td>
+                </tr>
+                    <td>SSID</td>
+                    <td>
+                        <input id="vif-cfg-basic-ssid" name="ssid" value="<%=vif["ssid"]%>">
+                    </td>
+                    <td></td>
+                <tr id="owe_transition_ifname_row">
+                <td>OWE Transition Interface Name</td>
+                    <td>
+                        <input id="vif-cfg-basic-oweName" name="owe_transition_ifname" value="<%=vif["owe_transition_ifname"]%>">
+                    </td>
+                    <td></td>
+                </tr>
+                </tr>
+                    <tr>
+                        <td>Status</td>
+                        <td>
+                            <input id="vif-cfg-basic-status-enable" type="radio" name="disabled" value="0" <% if (vif["disabled"] == "0" or vif["disabled"]== "") then %> checked="checked"<% end %>/> Enable
+                            <input id="vif-cfg-basic-status-disable" type="radio" name="disabled" value="1" <% if vif["disabled"] == "1" then %> checked="checked"<% end %>/> Disable
+                        </td>
+                        <td></td>
+                    </tr>
+                <tr>
+                    <td>MRSNO</td>
+                    <td>
+                        <input id="vif-cfg-mrsno-enable" type="radio" name="mrsno_enable" value="1" <%if(vif["mrsno_enable"]) == "1" then %> checked="checked"<%end%>" /> Enable
+                        <input id="vif-cfg-mrsno-disable" type="radio" name="mrsno_enable" value="0" <%if(vif["mrsno_enable"]) ~= "1" then %> checked="checked"<%end%>" /> Disable
+                    </td>
+                    <td></td>
+                </tr>
+
+                <tr>
+                    <td>Auth Mode</td>
+                    <td>
+                        <select name="authmode" cfg="AuthMode" id="AuthMode" onchange="hi('basic', '<%=WscValue%>', '<%=devnames%>', '<%=vifname%>');">
+                            <% for _, mode in ipairs(AuthModes) do %>
+                                <option value="<%=mode%>" <% if authmode == mode then %> selected="selected" <% end %> ><%=mode%></option>
+                            <% end %>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+                <tr>
+                    <td>EncryptType</td>
+                    <td>
+                        <select name="encrypttype" id="encrypttype" cfg="EncrypType">
+                            <option value=""></option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+            <tr id="wpa_key">
+                <td>Key</td>
+                <td>
+                    <input name="key" id="key" value="<%=vif["key"]%>">
+                </td>
+                <td></td>
+            </tr>
+            <tbody id="REKEY_INTERVAL" style="display:none;">
+                <tr>
+                    <td>Key Renewal Interval</td>
+                    <td>
+                        <input value="<%=vif["rekey_interval"]%>" type="text" name="rekey_interval" id="rekeyinterval" cfg="RekeyInterval"> second(s) (0 ~ 4194303)
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            <tbody id="WPAXPSK" style="display:none;">
+                <tr>
+                    <td>Key</td>
+                    <td>
+                        <input value="<%=vif["key"] and vif["key"]:gsub("\"","&quot;") or ""%>"type="text" name="<%=key%>" id="<%=key%>">
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            <tbody id="WPAX" style="display:none;">
+                <tr>
+                    <td>PMK Cache Period</td>
+                    <td>
+                        <input value="<%=vif["pmk_cache_period"]%>" type="text" name="pmk_cache_period" id="pmk_cache_period" cfg="PMKCachePeriod"> minute(s)
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <!-- rsn_preauth -->
+                    <td>Pre-Authentication</td>
+                    <td>
+                        <input name="rsn_preauth" id="rsn_preauth" value="1"
+                        <% if vif["rsn_preauth"] == "1" then %>
+                        checked="checked"
+                        <% end %> type="checkbox">
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+
+            <tbody id="ieee80211w">
+                <tr>
+                    <td>ieee802.11w</td>
+                    <td>
+                        <select name="ieee80211w" id="ieee80211w_select">
+                            <option value="0" <% if vif["ieee80211w"] == "0" then %>selected="selected"<% end %>>0</option>
+                            <option value="1" <% if vif["ieee80211w"] == "1" then %>selected="selected"<% end %>>1</option>
+                            <option value="2" <% if vif["ieee80211w"] == "2" then %>selected="selected"<% end %>>2</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            <tbody id="ieee8021x">
+                <tr>
+                    <td>ieee8021x</td>
+                    <td>
+                        <span>
+                            <% if enterprise then %>
+                                1
+                            <% else %>
+                                0
+                            <% end %>
+                        </span>
+                        <input type="hidden" name="ieee8021x" value="<% if enterprise then %>0<% else %>1<% end %>">
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            <tbody id="RADIUS" style="display:none">
+                <tr>
+                    <td>Radius Server IP</td>
+                    <td>
+                        <input value="<%=vif["auth_server"]%>" type="text" name="auth_server" id="auth_server" cfg="RADIUS_Server">
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Radius Server Port</td>
+                    <td>
+                        <input value="<%=vif["auth_port"]%>" type="text" name="auth_port" id="auth_port" cfg="RADIUS_Port">
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Shared Secret</td>
+                    <td>
+                        <input value="<%=vif["auth_secret"] and vif["auth_secret"]:gsub("\"","&quot;") or nil%>" type="text" name="<%="auth_secret"%>" id="<%="auth_secret"%>"></input>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Session Timeout</td>
+                    <td>
+                        <input value="<%=vif["session_timeout"]%>" type="text" name="session_timeout" id="session_timeout"> second(s)
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Idle Timeout</td>
+                    <td>
+                        <input value="<%=vif["idle_timeout"]%>" type="text" name="idle_timeout" id="idle_timeout"> second(s)
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            <tbody>
+                <tr id="VIF_HIDDEN_SSID_ROW">
+                    <td>Hidden</td>
+                    <td>
+                        <input type="hidden" id="hidden_value" name="hidden" value="<%= hidden_val %>">
+                        <input id="hidden_checkbox" cfg="HideSSID" type="checkbox" <% if hidden_val == "1" then %>checked="checked"<% end %> onchange="syncCheckboxValue('hidden_checkbox', 'hidden_value')">
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>AP Isolation</td>
+                    <td>
+                        <input type="hidden" id="isolate_value" name="isolate" value="<%= vif["isolate"] == "1" and "1" or "0" %>">
+                        <input id="isolate_checkbox" cfg="NoForwarding" type="checkbox" <% if vif["isolate"] == "1" then %>checked="checked"<% end %> onchange="syncCheckboxValue('isolate_checkbox', 'isolate_value')">
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>WMM Capable</td>
+                    <td>
+                        <input type="hidden" id="wmm_value" name="wmm" value="<%= vif["wmm"] ~= "0" and "1" or "0" %>">
+                        <input id="wmm_checkbox" cfg="WmmCapable" type="checkbox" <% if vif["wmm"] ~= "0" then %>checked="checked"<% end %> onchange="syncCheckboxValue('wmm_checkbox', 'wmm_value')">
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Data Beacon Rate (DTIM)</td>
+                    <td>
+                        <input name="dtim_period" id="dtim_period" value="<%=vif["dtim_period"] or 1%>" />Beacon interval(range 1-255, default 1)
+                    </td>
+                </tr>
+                <tr>
+                    <td>TX Rate</td>
+                    <td>
+                        <input value="<%=vif["tx_rate"] or 0%>" name="tx_rate" id="tx_rate"></input>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>VHT STBC</td>
+                    <td>
+                        <input type="radio" name="vht_stbc" value="1" <% if vif["vht_stbc"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="vht_stbc" value="0" <% if vif["vht_stbc"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>VHT LDPC</td>
+                    <td>
+                        <input type="radio" name="vht_ldpc" value="1" <% if vif["vht_ldpc"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="vht_ldpc" value="0" <% if vif["vht_ldpc"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>HT STBC</td>
+                    <td>
+                        <input type="radio" name="ht_stbc" value="1" <% if vif["ht_stbc"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="ht_stbc" value="0" <% if vif["ht_stbc"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>HT LDPC</td>
+                    <td>
+                        <input type="radio" name="ht_ldpc" value="1" <% if vif["ht_ldpc"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="ht_ldpc" value="0" <% if vif["ht_ldpc"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+
+                <tbody id="EASY_MESH_DEV_SETTINGS_TBODY" style="display:none">
+                    <tr>
+                        <td>Mode</td>
+                        <td>
+                            <span id="EASY_MESH_WMODE_SPAN"></span>
+                        </td>
+                        <td></td>
+                    </tr>
+                </tbody>
+                <tr>
+                    <td>APSD Capable</td>
+                    <td>
+                        <input type="radio" name="apsd_capable" value="1" <% if vif["apsd_capable"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="apsd_capable" value="0" <% if vif["apsd_capable"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Fragment Threshold</td>
+                    <td>
+                        <input name="frag" id="FragThreshold" value="<%=vif["frag"] or 2346%>" />(range 256-2346, default 2346)
+                    </td>
+                    <td></td>
+                </tr>
+
+                <tr>
+                    <td>RTS Threshold</td>
+                    <td>
+                        <input name="rts" id="RTSThreshold" value="<%=vif["rts"] or 2347%>" />(range 1-2347, default 2347)
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>VHT Short GI</td>
+                    <td>
+                        <select style="width:auto" name="vht_sgi">
+                            <option value="0" <% if vif["vht_sgi"] == "0" then %> selected="selected"<% end%>>Long</option>
+                            <option value="1" <% if vif["vht_sgi"] == "1" then %> selected="selected"<% end%>>Short</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>VHT BW Signaling</td>
+                    <td>
+                        <input type="radio" name="vht_bw_signal" value="1" <% if vif["vht_bw_signal"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="vht_bw_signal" value="0" <% if vif["vht_bw_signal"] == "0" then %> checked="checked"<% end %>/> Disable
+                        <input type="radio" name="vht_bw_signal" value="2" <% if vif["vht_bw_signal"] == "2" then %> checked="checked"<% end %>/> Dynamic
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>HT Protection</td>
+                    <td>
+                        <input type="radio" name="ht_protect" value="1" <% if vif["ht_protect"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="ht_protect" value="0" <% if vif["ht_protect"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                <td>HT Guard Interval</td>
+                    <td>
+                        <select style="width:auto" name="ht_gi">
+                            <option value="0" <% if vif["ht_gi"] == "0" then %> selected="selected"<% end%>>Long</option>
+                            <option value="1" <% if vif["ht_gi"] == "1" then %> selected="selected"<% end%>>Short</option>
+                            <option value="2" <% if vif["ht_gi"] == "2" then %> selected="selected"<% end%>>Auto</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Operating Mode</td>
+                    <td>
+                        <select style="width:auto" name="ht_opmode">
+                            <option value="0" <% if vif["ht_opmode"] == "0" then %> selected="selected"<% end%>>Mixed Mode</option>
+                            <option value="1" <% if vif["ht_opmode"] == "1" then %> selected="selected"<% end%>>Green Field</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>A-MSDU</td>
+                    <td>
+                        <input type="radio" name="ht_amsdu" value="1" <% if vif["ht_amsdu"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="ht_amsdu" value="0" <% if vif["ht_amsdu"] == "0" then %> checked="checked"<% end %>/> Disable
+                   </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Auto Block ACK</td>
+                    <td>
+                        <input type="radio" name="ht_autoba" value="1" <% if vif["ht_autoba"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="ht_autoba" value="0" <% if vif["ht_autoba"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>BA Win size</td>
+                    <td>
+                        <input name="ht_bawinsize" id="HT_BAWinSize" value="<%=vif["ht_bawinsize"]%>"/> (range 1-<% if ctrl_mtkwifi.ax_board() then %>256<% else %>1024<% end %>)
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>Decline BA Request</td>
+                    <td>
+                        <input type="radio" name="ht_badec" value="1" <% if vif["ht_badec"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="ht_badec" value="0" <% if vif["ht_badec"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>IGMP Snooping</td>
+                    <td>
+                        <input type="radio" name="igmpsn_enable" value="1" <% if vif["igmpsn_enable"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="igmpsn_enable" value="0" <% if vif["igmpsn_enable"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                 <tbody id="ieee80211r">
+                <tr>
+                    <td>ieee802.11r</td>
+                    <td>
+                        <select name="ieee80211r" id="ieee80211r_select">
+                            <option value="0" <% if vif["ieee80211r"] == "0" then %>selected="selected"<% end %>>0</option>
+                            <option value="1" <% if vif["ieee80211r"] == "1" then %>selected="selected"<% end %>>1</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+        <table id="vif-cfg-he_mu" class="cbi-section-table" name="vif-cfg-he_mu" style="display:none">
+                <tr>
+                    <th></th>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>DL OFDMA</td>
+                    <td>
+                        <input type="radio" name="muofdmadl_enable" value="1" <% if vif["muofdmadl_enable"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="muofdmadl_enable" value="0" <% if vif["muofdmadl_enable"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>UL OFDMA</td>
+                    <td>
+                        <input type="radio" name="muofdmaul_enable" value="1" <% if vif["muofdmaul_enable"] == "1" then%> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="muofdmaul_enable" value="0" <% if vif["muofdmaul_enable"] == "0" then%> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>DL MU-MIMO</td>
+                    <td>
+                        <input type="radio" name="mumimodl_enable" value="1" <% if vif["mumimodl_enable"] == "1" then %> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="mumimodl_enable" value="0" <% if vif["mumimodl_enable"] == "0" then %> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>UL MU-MIMO</td>
+                    <td>
+                        <input type="radio" name="mumimoul_enable" value="1" <% if vif["mumimoul_enable"] == "1" then%> checked="checked"<% end %>/> Enable
+                        <input type="radio" name="mumimoul_enable" value="0" <% if vif["mumimoul_enable"] == "0" then%> checked="checked"<% end %>/> Disable
+                    </td>
+                    <td></td>
+                </tr>
+        </table>
+
+        <table id="vif-cfg-uhr" class="cbi-section-table" name="vif-cfg-uhr" style="display:none">
+            <tr>
+                <td>NPCA</td>
+                <td>
+                    <input type="radio" name="uhr_npca" value="1" <% if vif["uhr_npca"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_npca" value="0" <% if vif["uhr_npca"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>DPS</td>
+                <td>
+                    <input type="radio" name="uhr_dps" value="1" <% if vif["uhr_dps"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_dps" value="0" <% if vif["uhr_dps"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>DPS Assisting Support</td>
+                <td>
+                    <input type="radio" name="uhr_dps_assisting" value="1" <% if vif["uhr_dps_assisting"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_dps_assisting" value="0" <% if vif["uhr_dps_assisting"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>Multi-link Power Mgmt</td>
+                <td>
+                    <input type="radio" name="uhr_ml_power_mgmt" value="1" <% if vif["uhr_ml_power_mgmt"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_ml_power_mgmt" value="0" <% if vif["uhr_ml_power_mgmt"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>BSR Enhancement</td>
+                <td>
+                    <input type="radio" name="uhr_bsr_enhance" value="1" <% if vif["uhr_bsr_enhance"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_bsr_enhance" value="0" <% if vif["uhr_bsr_enhance"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>Additional Mapping TID</td>
+                <td>
+                    <input type="text" name="uhr_addl_map_tid" value="<%= vif["uhr_addl_map_tid"] or '' %>"/>
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>Downlink Data Forwarding</td>
+                <td>
+                    <input type="radio" name="uhr_dl_data_fwd" value="1" <% if vif["uhr_dl_data_fwd"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_dl_data_fwd" value="0" <% if vif["uhr_dl_data_fwd"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>Maximum Number Of Target AP</td>
+                <td>
+                    <input type="number" name="uhr_max_num_of_target_ap" min="1" max="4" step="1"value="<%= vif["uhr_max_num_of_target_ap"] or '4' %>"/>
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>DSO</td>
+                <td>
+                    <input type="radio" name="uhr_dso" value="1" <% if vif["uhr_dso"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_dso" value="0" <% if vif["uhr_dso"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>DBE</td>
+                <td>
+                    <input type="radio" name="uhr_dbe" value="1" <% if vif["uhr_dbe"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_dbe" value="0" <% if vif["uhr_dbe"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>DUO</td>
+                <td>
+                    <input type="radio" name="uhr_duo" value="1" <% if vif["uhr_duo"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_duo" value="0" <% if vif["uhr_duo"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>AOM</td>
+                <td>
+                    <input type="radio" name="uhr_aom" value="1" <% if vif["uhr_aom"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_aom" value="0" <% if vif["uhr_aom"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>OMP Timeout</td>
+                <td>
+                    <input type="number" name="uhr_omp_timeout" min="8" max="11" step="1" value="<%= (tonumber(vif['uhr_omp_timeout']) and tonumber(vif['uhr_omp_timeout']) >= 8 and tonumber(vif['uhr_omp_timeout']) < 12) and vif['uhr_omp_timeout'] or '11' %>"/>
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>SMD Enable</td>
+                <td>
+                    <input type="radio" name="uhr_smd_enable" value="1" <% if vif["uhr_smd_enable"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_smd_enable" value="0" <% if vif["uhr_smd_enable"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>SMD Identifier</td>
+                <td>
+                    <input type="text" name="uhr_smd_addr" value="<%= vif["uhr_smd_addr"] or '' %>"/>
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>SMD Type</td>
+                <td>
+                    <input type="text" name="uhr_smd_type" value="<%= vif["uhr_smd_type"] or '' %>"/>
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>SMD PTK Mode</td>
+                <td>
+                    <input type="radio" name="uhr_ptk_mode" value="1" <% if vif["uhr_ptk_mode"] == "1" then %> checked="checked"<% end %>/> Enable
+                    <input type="radio" name="uhr_ptk_mode" value="0" <% if vif["uhr_ptk_mode"] == "0" then %> checked="checked"<% end %>/> Disable
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>SMD Timeout</td>
+                <td>
+                    <input type="number" name="uhr_timeout" min="0" value="<%= vif["uhr_timeout"] or '30' %>"/>
+                </td>
+                <td></td>
+            </tr>
+        </table>
+        <% if request[4] == "vif_cfg_intf" then%>
+            <table class="cbi-section-table" id="vif-cfg-station" name="vif-cfg-station" style="display:none" width="100%" border="1" cellpadding="2" cellspacing="1">
+                <tr style="font-weight:bold;">
+                    <td class="head" id="stalistMacAddr">MAC Addr</td>
+                    <td class="head">Aid</td>
+                    <!-- <td class="head">PSM</td> -->
+                    <!-- <td class="head">MIMO<br>PS</td> -->
+                    <td class="head">TX Rate</td>
+                    <!-- <td class="head">TxBF</td> -->
+                    <!-- <td class="head">RSSI</td> -->
+                    <!-- <td class="head">Stream<br>SNR</td> -->
+                    <!-- <td class="head">Snd Rsp<br>SNR</td> -->
+                    <td class="head">Last RX Rate</td>
+                    <td class="head">Connect Time</td>
+                </tr>
+            </table>
+        <% end %>
+
+        <fieldset class="cbi-section" id="vif-cfg-basic-AC">
+            <legend>Access Control - <%=vifname and devnames.."@"..vifname or devnames%>  </legend>
+            <table class="cbi-section-table">
+                <tr>
+                    <td style="width:300px;">Access Policy</td>
+                    <td>
+                        <input type="radio" name="access_policy" value="0" id="disable_AP" <% if vif["access_policy"] == "0" or not vif["access_policy"] or vif["access_policy"] == "" then %> checked="checked"<% end %>/> Disable
+                        <br>
+                        <input type="radio" name="access_policy" value="1" id="white_AP"  <% if vif["access_policy"] == "1" then %> checked="checked"<% end %>/> White List
+                        <br>
+                        <input type="radio" name="access_policy" value="2" id="black_AP"<% if vif["access_policy"] == "2" then %> checked="checked"<% end %>/> Black List
+                        <br>
+                    </td>
+                </tr>
+            </table>
+            <pre>
+# 1. one MAC one line.
+# 2. empty lines will be ignored.
+# 3. lines start with "#" will be ignored.
+# 4. invalid MAC will be ignored.
+
+11:22:33:44:55:66
+AA:BB:CC:DD:EE:FF
+11:22:33:aa:bb:cc
+            </pre>
+            <textarea name="access_list" id="access_list"style="width:98%; height: 200px;"><%
+            local list = vif["access_list"] or {}
+            if type(list) == "table" then
+                printf(table.concat(list, "\n"))
+            elseif type(list) == "string" then
+                printf(table.concat(list:split(";"), "\n"))
+            end
+            %></textarea>
+        </fieldset>
+    </fieldset>
+<div class="cbi-page-actions" id="vif_form_action_btns">
+            <input class="cbi-button cbi-button-apply" name="__apply" value="Save and Apply" type="submit">
+            <input class="cbi-button cbi-button-apply" value="Save" type="submit">
+            <input class="cbi-button cbi-button-reset" value="Reset" type="reset">
+        </div>
+<% end %>
+</form>
+<%+footer%>
+<script type="text/javascript">
+    let iface_list
+    function change_state(obj){
+        var state=obj.attributes.tag.value;
+        var htmode=obj.attributes.htmode.value;
+        var res = obj.attributes.intf.value;
+        if (state==0){
+        if (htmode.startsWith('UHR') || htmode.startsWith('EHT')) {
+            obj.checked=true;
+            obj.setAttribute("tag",1);
+            if (htmode.startsWith('UHR'))
+            {
+            document.getElementById('vif-cfg-tab-uhr').style.display = '';
+            }
+        }
+        else{
+            alert("Only be mode support mlo");
+            obj.checked=false;
+           }
+        }else{
+            obj.setAttribute("tag",0);
+            obj.checked=false;
+        }
+
+        if(res.indexOf("apcli")!=-1){
+            init_main_sta()
+        }
+
+        // Update AuthMode options when checkbox state changes
+        update_authmode_options();
+    }
+    function show_uhr(selectedDevices, iface_list) {
+    let selectedDevArr = Array.isArray(selectedDevices) ? selectedDevices : Object.values(selectedDevices);
+    for (let band in iface_list) {
+        let bandObj = iface_list[band];
+        if (bandObj.htmode && bandObj.htmode.startsWith('UHR')) {
+            let intfArr = bandObj.intf;
+            if (Array.isArray(intfArr)) {
+                for (let i = 0; i < intfArr.length; i++) {
+                    let devname = intfArr[i].devname;
+                    if (selectedDevArr.includes(devname)) {
+                        document.getElementById('vif-cfg-tab-uhr').style.display = '';
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    document.getElementById('vif-cfg-tab-uhr').style.display = 'none';
+    }
+
+    function is_6g_selected() {
+        if (!iface_list) return false;
+
+        // Get all checked device checkboxes
+        var checkboxes = document.querySelectorAll('input[name="device"]:checked');
+
+        for (var i = 0; i < checkboxes.length; i++) {
+            var devname = checkboxes[i].value;
+
+            // Check if this device belongs to 6G band
+            for (var band in iface_list) {
+                if (band === '6G') {
+                    var intfArr = iface_list[band]['intf'];
+                    if (Array.isArray(intfArr)) {
+                        for (var j = 0; j < intfArr.length; j++) {
+                            if (intfArr[j].devname === devname) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function update_authmode_options() {
+        var authModeSelect = document.getElementById('AuthMode');
+        if (!authModeSelect) return;
+
+        var is6GSelected = is_6g_selected();
+
+        // Find and hide/show OPEN option
+        for (var i = 0; i < authModeSelect.options.length; i++) {
+            if (authModeSelect.options[i].value === 'OPEN') {
+                if (is6GSelected) {
+                    // Hide OPEN option for 6G
+                    authModeSelect.options[i].style.display = 'none';
+                    authModeSelect.options[i].disabled = true;
+
+                    // If OPEN is currently selected, change to first non-OPEN option
+                    if (authModeSelect.value === 'OPEN') {
+                        for (var j = 0; j < authModeSelect.options.length; j++) {
+                            if (authModeSelect.options[j].value !== 'OPEN' && authModeSelect.options[j].value !== '') {
+                                authModeSelect.value = authModeSelect.options[j].value;
+                                // Trigger change event to update encryption options
+                                var event = new Event('change');
+                                authModeSelect.dispatchEvent(event);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // Show OPEN option for non-6G
+                    authModeSelect.options[i].style.display = '';
+                    authModeSelect.options[i].disabled = false;
+                }
+                break;
+            }
+        }
+    }
+
+    function updateOweTransitionVisibility() {
+        var authModeSelect = document.getElementById('AuthMode');
+        var oweTransitionRow = document.getElementById('owe_transition_ifname_row');
+        if (!authModeSelect || !oweTransitionRow) return;
+
+        oweTransitionRow.style.display = authModeSelect.value === 'OWE' ? '' : 'none';
+    }
+
+    function get_iface_list(info, is_init){
+        XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_iface_list_uci")%>/' + info.mode , null,
+            function(x) {
+                var list = JSON.parse(x.response)
+                iface_list = list
+                var selectedDevices = <% luci.http.write_json(selected_devices) %>;
+                let selectedDevArr = Array.isArray(selectedDevices) ? selectedDevices : Object.values(selectedDevices);
+                let str=''
+                for (let dev in list) {
+                    str += "<div><span>" + dev + "：</span>"
+                    let intfArr = list[dev]['intf'];
+                    if (Array.isArray(intfArr) && intfArr.length > 0) {
+                        let intf = intfArr[0];
+                        let checked = selectedDevArr.includes(intf.devname) ? "checked='checked'" : "";
+                        str += "<input htmode='" + list[dev]['htmode'] +
+                            "' tag='0' onclick='change_state(this)' intf='" + intf.main_ifname +
+                            "' id='" + intf.devname + "_" + intf.main_ifname +
+                            "' name='device' value='" + intf.devname +
+                            "' type='checkbox' " + checked + " /> " + intf.devname + "&nbsp;&nbsp;";
+                    }
+                    str += "</div>"
+                }
+
+                document.getElementById("iface_list").innerHTML = str
+                show_uhr(selectedDevices, iface_list);
+
+                // Update AuthMode options based on 6G selection
+                if (is_init) {
+                    // Small delay to ensure checkboxes are rendered
+                    setTimeout(function() {
+                        update_authmode_options();
+                    }, 50);
+                }
+            }
+        )
+    }
+    function onStaModeSelected() {
+        var devnames = "<%= devnames%>";
+        var vifname = "<%= vifname%>";
+        window.location.href = "/cgi-bin/luci/admin/mtk/wifi/vif_stamld_add/" + encodeURIComponent(devnames);
+    }
+   function fetchEncryptionList(isInit) {
+    var authmode = document.getElementById('AuthMode').value;
+    var wpaKeyRow = document.getElementById("wpa_key");
+
+    // Hide Key field for OPEN and OWE authentication modes
+    if (authmode === "OPEN" || authmode === "OWE" || authmode === "Enhanced Open") {
+        if (wpaKeyRow) wpaKeyRow.style.display = "none";
+    } else {
+        if (wpaKeyRow) wpaKeyRow.style.display = "";
+    }
+
+    console.log('authmode:', authmode);
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_encryption_list_by_auth_mode")%>?auth_name=' + encodeURIComponent(authmode), null, function(x, data) {
+        var encryptionSelect = document.getElementById('encrypttype');
+        var currentEncryptType = "<%=encrypttype%>";
+        encryptionSelect.innerHTML = '';
+        var result = data;
+        if (!result && x && x.responseText) {
+            result = x.responseText;
+        }
+        if (result) {
+            var emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.text = '';
+            encryptionSelect.appendChild(emptyOpt);
+            var encrList = [];
+                try {
+                    encrList = JSON.parse(result);
+                } catch (e) {
+                    encrList = [];
+                }
+                for (var i = 0; i < encrList.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = encrList[i];
+                    opt.text = encrList[i];
+                    encryptionSelect.appendChild(opt);
+                }
+
+            if (isInit) {
+                encryptionSelect.value = currentEncryptType || '';
+            } else {
+                encryptionSelect.selectedIndex = 0;
+            }
+        }
+    });
+
+}
+    function getEncryption(callback) {
+    var authmode = document.getElementById('AuthMode').value;
+    var encrypttype = document.getElementById('encrypttype').value;
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_encryption_by_auth")%>?authmode=' + encodeURIComponent(authmode) + '&encrypttype=' + encodeURIComponent(encrypttype), null, function(x, data) {
+        var resp = data || (x.responseText ? JSON.parse(x.responseText) : null);
+        if (resp && resp.encryption !== undefined) {
+            var encryptionInput = document.querySelector('input[name="encryption"]');
+            if (encryptionInput) encryptionInput.value = resp.encryption;
+            console.log("encryption updated:", resp.encryption);
+            if (callback) callback(resp.encryption);
+        }
+    });
+}
+
+function getIeee8021x(encryption) {
+    if (!encryption) return;
+
+    XHR.get('<%=luci.dispatcher.build_url("admin", "mtk", "wifi", "get_enterprise_by_encryption")%>?encryption=' + encodeURIComponent(encryption), null, function(x, data) {
+        var resp2 = data || (x.responseText ? JSON.parse(x.responseText) : null);
+        if (resp2 && resp2.enterprise !== undefined) {
+            var enterprise = resp2.enterprise;
+            var span = document.querySelector('#ieee8021x span');
+            var input = document.querySelector('#ieee8021x input[name="ieee8021x"]');
+            var val = enterprise ? "1" : "0";
+            if (span) span.innerText = val;
+            if (input) input.value = val;
+            console.log("IEEE8021X updated:", val);
+        }
+    });
+}
+
+/* Functions used for updating Stations tab must be written inside this check. */
+<% if request[4] == "vif_cfg_intf" then%>
+    function clean_stalist_table()
+    {
+        var table = document.getElementById('vif-cfg-station');
+        while(table.rows.length > 1)
+            table.deleteRow(-1);
+    }
+
+    function insert_stalist_table()
+    {
+        var i, tr_row, td_cell;
+        var tableid = document.getElementById('vif-cfg-station');
+
+        if (!tableid || !sta_list || sta_list.length === 0) {
+            return;
+        }
+
+        for (i = 0; sta_list[i] ; i++){
+            tr_row = tableid.insertRow(-1);
+            td_cell = tr_row.insertCell(-1);
+            td_cell.innerHTML = sta_list[i].Mac || 'N/A';
+            td_cell = tr_row.insertCell(-1);
+            td_cell.innerHTML = sta_list[i].aid || 'N/A';
+            td_cell = tr_row.insertCell(-1);
+            td_cell.innerHTML = sta_list[i].tx_rate_info || 'N/A';
+            td_cell = tr_row.insertCell(-1);
+            td_cell.innerHTML = sta_list[i].rx_rate_info || 'N/A';
+            td_cell = tr_row.insertCell(-1);
+            td_cell.innerHTML = sta_list[i].connected_time || 'N/A';
+        }
+    }
+
+    function InitStaList_cb(response)
+    {
+        if (!response || !Array.isArray(response)) {
+            return;
+        }
+
+        sta_list = response;
+        clean_stalist_table();
+        insert_stalist_table();
+    }
+
+    function InitStaList(devname, vifname)
+    {
+        var url = "<%=luci.dispatcher.build_url("admin",  "mtk",  "wifi",  "sta_info")%>/" + vifname;
+        XHR.poll(10, url, null,
+            function(x)
+            {
+                if (x.status !== 200 || !x.responseText || x.responseText.length === 0) {
+                    return;
+                }
+
+                try{
+                    var response = JSON.parse(x.responseText);
+                    InitStaList_cb(response);
+                }
+                catch(e){
+                    // JSON parse error - ignore
+                }
+            }
+        );
+    }
+<% end %>
+
+function onAuthOrEncryptChange() {
+    getEncryption(function(encryption) {
+        getIeee8021x(encryption);
+    });
+}
+    document.getElementById('AuthMode').addEventListener('change', fetchEncryptionList);
+    document.getElementById('AuthMode').addEventListener('change', getEncryption());
+    document.getElementById('encrypttype').addEventListener('change', getEncryption());
+    document.getElementById('AuthMode').addEventListener('change', onAuthOrEncryptChange);
+    document.getElementById('encrypttype').addEventListener('change', onAuthOrEncryptChange);
+    document.getElementById('AuthMode').addEventListener('change', updateOweTransitionVisibility);
+    window.onload = function() {
+        var info = {mode: 'sta'};
+        get_iface_list(info, true);
+        fetchEncryptionList(true);
+        getEncryption();
+        onAuthOrEncryptChange();
+        updateOweTransitionVisibility();
+
+        // Initialize all checkbox values (redundant but defensive)
+        syncAllCheckboxes();
+    };
+</script>
