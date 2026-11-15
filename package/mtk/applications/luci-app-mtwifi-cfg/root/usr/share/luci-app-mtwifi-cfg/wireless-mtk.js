@@ -1330,30 +1330,6 @@ return view.extend({
 					}, this));
 				};
 
-				// VLAN ID option for bridge VLAN filtering
-				o = ss.taboption('general', form.Value, 'vid', _('VLAN ID'),
-					_('VLAN ID for bridge VLAN filtering. Set this to match your network VLAN configuration. Common values: 7 (guest), 70 (IoT), 73 (corporate), 74 (lab).'));
-				o.datatype = 'range(1,4094)';
-				o.optional = true;
-				o.rmempty = true;
-				o.placeholder = _('auto');
-				o.depends('mode', 'ap');
-				o.depends('mode', 'ap-wds');
-				o.depends('mode', 'sta');
-				o.depends('mode', 'sta-wds');
-
-				// Add validation to ensure VID matches network configuration
-				o.validate = function(section_id, value) {
-					if (value === '' || value === null)
-						return true;
-
-					const vid = parseInt(value);
-					if (isNaN(vid) || vid < 1 || vid > 4094)
-						return _('VLAN ID must be between 1 and 4094');
-
-					return true;
-				};
-
 				let encr;
 				if (hwtype == 'mtwifi') {
 					const mode = ss.children.find(obj => obj.option === 'mode');
@@ -1439,17 +1415,6 @@ return view.extend({
 					o.optional = true;
 					o.rmempty = true;
 					o.placeholder = 'auto';
-
-					o = ss.taboption('general', form.ListValue, 'multi_ap', _('Enable Multi-AP functionality'));
-					o.depends('mode', 'ap');
-					o.depends('mode', 'sta');
-					o.depends('mode', 'ap-wds');
-					o.depends('mode', 'mesh');
-					o.value('0', _('Disable'));
-					o.value('1', _('Backhaul BSS'));
-					o.value('2', _('Fronthaul BSS'));
-					o.value('3', _('Both Backhaul BSS and Fronthaul BSS'));
-					o.default = '0';
 
 					o = ss.taboption('general', form.Flag, 'mwds', _('Enable MWDS'), _('MediaTek Mixed WDS: process 4-address frames of associated APClient/STA. Only interoperates with other MediaTek devices, for standard (mac80211-compatible) WDS use the WDS modes above instead.'));
 					o.depends('mode', 'ap');
@@ -2208,11 +2173,6 @@ return view.extend({
 					if (has_80211r)
 						add_dependency_permutations(o, { mode: ['ap', 'ap-wds'], encryption: ['psk2', 'psk-mixed', 'sae', 'sae-mixed', 'sae-compat'] });
 					o.rmempty = true;
-
-					o = ss.taboption('roaming', form.Flag, 'reliable_11r', _('802.11r Reliability'), _('Enabling MTK reliability 802.11r may improve the roaming stability of legacy or IoT clients at the cost of switching speed.'));
-					add_dependency_permutations(o, { ieee80211r: ['1'], mode: ['ap', 'ap-wds'] });
-					o.default = o.disabled;
-					o.rmempty = false;
 
 					o = ss.taboption('roaming', form.Value, 'nasid', _('NAS ID'), _('Used for two different purposes: RADIUS NAS ID and 802.11r R0KH-ID. Not needed with normal WPA(2)-PSK.'));
 					add_dependency_permutations(o, { mode: ['ap', 'ap-wds'], encryption: ['wpa', 'wpa2', 'wpa3', 'wpa3-mixed', 'wpa3-192'] });
@@ -3037,7 +2997,10 @@ return view.extend({
 
 			cbi_update_table(table, [], E('em', { 'class': 'spinning' }, _('Collecting data...')));
 
-			return E([ nodes, E('h3', _('Associated Stations')), table ]);
+			return E([ nodes, E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('Associated Stations')),
+				table
+			]) ]);
 		}, this, m));
 	},
 
