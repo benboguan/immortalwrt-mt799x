@@ -1,7 +1,7 @@
 diff -ruN a/src/drivers/mediatek_driver_cmd_nl80211.c b/src/drivers/mediatek_driver_cmd_nl80211.c
 --- a/src/drivers/mediatek_driver_cmd_nl80211.c	2025-03-14 11:46:59.340216988 +0800
 +++ b/src/drivers/mediatek_driver_cmd_nl80211.c	2025-04-09 14:57:28.321644000 +0800
-@@ -444,45 +444,229 @@
+@@ -495,55 +495,237 @@
  	wpa_hexdump(MSG_MSGDUMP, "Sta Link Mac", data, data_len);
  }
  
@@ -172,6 +172,8 @@ diff -ruN a/src/drivers/mediatek_driver_cmd_nl80211.c b/src/drivers/mediatek_dri
 +		return "MTK_NL80211_VENDOR_EVENT_ACS_PER_CH_INFO";
 +	case MTK_NL80211_VENDOR_EVENT_SEND_MLO_STA_LINK_MAC:
 +		return "MTK_NL80211_VENDOR_EVENT_SEND_MLO_STA_LINK_MAC";
++	case MTK_NL80211_VENDOR_EVENT_NOTIFY_ML_RECONF:
++		return "MTK_NL80211_VENDOR_EVENT_NOTIFY_ML_RECONF";
 +	case MTK_NL80211_VENDOR_EVENT_MLO_RECONF:
 +		return "MTK_NL80211_VENDOR_EVENT_MLO_RECONF";
 +	case MTK_NL80211_VENDOR_EVENT_ANDLINK:
@@ -219,6 +221,11 @@ diff -ruN a/src/drivers/mediatek_driver_cmd_nl80211.c b/src/drivers/mediatek_dri
 -	            "nl80211: MTK_NL80211_VENDOR_EVENT_ACS_COMPLETE_EVENT event %u", subcmd);
 -            mtk_nl80211_acs_complete_event(drv, data, len);
 -            break;
+-        case MTK_NL80211_VENDOR_EVENT_5M_SHIFT_ENABLE:
+-			wpa_printf(MSG_INFO,
+-	            "nl80211: MTK_NL80211_VENDOR_EVENT_5M_SHIFT_ENABLE event %u", subcmd);
+-            mtk_nl80211_5m_shift_enable(drv, data, len);
+-            break;
 +	wpa_printf(MSG_INFO, "nl80211: %s event %u", mtk_nl80211_vendor_event_txt(subcmd), subcmd);
 +
 +	switch (subcmd) {
@@ -234,6 +241,9 @@ diff -ruN a/src/drivers/mediatek_driver_cmd_nl80211.c b/src/drivers/mediatek_dri
 +	case MTK_NL80211_VENDOR_EVENT_ACS_COMPLETE_EVENT:
 +		mtk_nl80211_acs_complete_event(drv, data, len);
 +		break;
++	case MTK_NL80211_VENDOR_EVENT_5M_SHIFT_ENABLE:
++		mtk_nl80211_5m_shift_enable(drv, data, len);
++		break;
  	case MTK_NL80211_VENDOR_EVENT_RX_T2LM_STOP_DISASSOC_TIMER:
 -		wpa_printf(MSG_DEBUG,
 -		"nl80211: MTK_NL80211_VENDOR_EVENT_RX_T2LM_STOP_DISASSOC_TIMER event %u", subcmd);
@@ -243,6 +253,11 @@ diff -ruN a/src/drivers/mediatek_driver_cmd_nl80211.c b/src/drivers/mediatek_dri
 -		wpa_printf(MSG_DEBUG,
 -		"nl80211: MTK_NL80211_VENDOR_EVENT_SEND_MLO_STA_LINK_MAC event %u", subcmd);
  		mtk_nl80211_rx_sta_link_mac_event(drv, data, len);
+ 		break;
+ 	case MTK_NL80211_VENDOR_EVENT_NOTIFY_ML_RECONF:
+-		wpa_printf(MSG_DEBUG,
+-		"nl80211: MTK_NL80211_VENDOR_EVENT_NOTIFY_ML_RECONF event %u", subcmd);
+ 		mtk_nl80211_ml_reconf_event(drv, bss, data, len);
  		break;
 -	    default:
 -	        wpa_printf(MSG_DEBUG,

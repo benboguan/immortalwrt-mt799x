@@ -2,7 +2,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/sta_info.c
 ===================================================================
 --- hostapd-2022-07-29-b704dc72.orig/src/ap/sta_info.c
 +++ hostapd-2022-07-29-b704dc72/src/ap/sta_info.c
-@@ -426,6 +426,7 @@ void hostapd_free_stas(struct hostapd_da
+@@ -431,6 +431,7 @@ void hostapd_free_stas(struct hostapd_da
  
  	while (sta) {
  		prev = sta;
