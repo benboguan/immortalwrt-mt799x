@@ -1,0 +1,71 @@
+diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
+index 4975e1689..5b1f625ff 100644
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -1044,6 +1044,9 @@ void sae_accept_sta(struct hostapd_data *hapd, struct sta_info *sta)
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 				   ,sta->addr
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++				,sta->sae->dot11MultiLinkActivated
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 	);
+ 	sae_sme_send_external_auth_status(hapd, sta, WLAN_STATUS_SUCCESS);
+ #endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+@@ -1706,6 +1709,9 @@ static void handle_auth_sae(struct hostapd_data *hapd, struct sta_info *sta,
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 					,sta->addr
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++				,sta->sae->dot11MultiLinkActivated
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 		);
+ #endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+ 		resp = sae_sm_step(hapd, sta, mgmt->bssid, auth_transaction,
+@@ -2673,6 +2679,9 @@ static int pasn_wd_handle_sae_confirm(struct hostapd_data *hapd,
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 			   	   ,sta->addr
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++				,sta->sae ? sta->sae->dot11MultiLinkActivated : 0
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 	);
+ 	return 0;
+ }
+diff --git a/src/ap/wpa_auth.c b/src/ap/wpa_auth.c
+index ea8836dd3..783126dc6 100644
+--- a/src/ap/wpa_auth.c
++++ b/src/ap/wpa_auth.c
+@@ -5258,6 +5258,9 @@ int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 			   ,const u8 * link_addr
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++			,unsigned int MultiLinkActivated
++#endif /* CONFIG_MTK_IEEE80211BE */
+ )
+ {
+ 	if (wpa_auth->conf.disable_pmksa_caching)
+@@ -5270,7 +5273,7 @@ int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 	if (1) {
+ 		struct wpa_ml_group *ml_group = ((struct hostapd_data *)wpa_auth->cb_ctx)->ml_group;
+-		if (!ml_group || ml_group->ml_link_num == 0) { /*legacy case*/
++		if (!MultiLinkActivated || !ml_group || ml_group->ml_link_num == 0) { /*legacy case*/
+ 			// When ml_link_num is zero(dellink or set phymode), Ap cannot generate pmksa for STA 
+ 			wpa_printf(MSG_INFO, "RSN: legacy case to add pmksa");
+ 			if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
+diff --git a/src/ap/wpa_auth.h b/src/ap/wpa_auth.h
+index d898949b2..38cc83ddb 100644
+--- a/src/ap/wpa_auth.h
++++ b/src/ap/wpa_auth.h
+@@ -441,6 +441,9 @@ int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 			   ,const u8 * link_addr
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++			,unsigned int MultiLinkActivated
++#endif /* CONFIG_MTK_IEEE80211BE */
+ );
+ void wpa_auth_add_sae_pmkid(struct wpa_state_machine *sm, const u8 *pmkid);
+ int wpa_auth_pmksa_add2(struct wpa_authenticator *wpa_auth, const u8 *addr,

@@ -34,8 +34,6 @@ struct sta_info;
 #include <libubox/avl.h>
 #include <libubus.h>
 
-#define UBUS_LMR_TOKEN 1
-
 struct hostapd_ubus_bss {
 	struct ubus_object obj;
 	struct avl_tree banned;
@@ -48,9 +46,10 @@ void hostapd_ubus_add_bss(struct hostapd_data *hapd);
 void hostapd_ubus_free_bss(struct hostapd_data *hapd);
 void hostapd_ubus_add_vlan(struct hostapd_data *hapd, struct hostapd_vlan *vlan);
 void hostapd_ubus_remove_vlan(struct hostapd_data *hapd, struct hostapd_vlan *vlan);
+bool hostapd_ubus_object_exists(void);
 
 int hostapd_ubus_handle_event(struct hostapd_data *hapd, struct hostapd_ubus_request *req);
-int hostapd_ubus_handle_link_measurement(struct hostapd_data *hapd, const u8 *data, size_t len);
+void hostapd_ubus_handle_link_measurement(struct hostapd_data *hapd, const u8 *data, size_t len);
 void hostapd_ubus_notify(struct hostapd_data *hapd, const char *type, const u8 *mac);
 void hostapd_ubus_notify_beacon_report(struct hostapd_data *hapd,
 				       const u8 *addr, u8 token, u8 rep_mode,
@@ -105,14 +104,17 @@ static inline void hostapd_ubus_remove_vlan(struct hostapd_data *hapd, struct ho
 {
 }
 
+bool hostapd_ubus_object_exists(void)
+{
+}
+
 static inline int hostapd_ubus_handle_event(struct hostapd_data *hapd, struct hostapd_ubus_request *req)
 {
 	return 0;
 }
 
-static inline int hostapd_ubus_handle_link_measurement(struct hostapd_data *hapd, const u8 *data, size_t len)
+static inline void hostapd_ubus_handle_link_measurement(struct hostapd_data *hapd, const u8 *data, size_t len)
 {
-	return 0;
 }
 
 static inline void hostapd_ubus_notify(struct hostapd_data *hapd, const char *type, const u8 *mac)
