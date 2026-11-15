@@ -46,9 +46,15 @@ boot() {
 
 	# update wifi config before additional ieee80211 hotplug events
 	# get executed because of '/sbin/kmodloader' kmod loading.
-	[ -f /etc/board.json ] && /sbin/wifi config
 
 	/sbin/kmodloader
+
+	[ -f /etc/board.json ] && /sbin/wifi config
+
+	[ ! -f /etc/config/wireless ] && {
+		/sbin/wifi detect
+		sleep 1
+	}
 
 	uci_apply_defaults
 	sync
