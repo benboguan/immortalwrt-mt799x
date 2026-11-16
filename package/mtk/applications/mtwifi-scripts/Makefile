@@ -24,7 +24,7 @@ define Package/mtwifi-scripts
   CATEGORY:=MTK Properties
   SUBMENU:=Applications
   TITLE:=mtwifi configure scripts for mt799x (ucode)
-  DEPENDS:=+wifi-dats +netifd \
+  DEPENDS:=+wifi-dats +netifd +mwctl \
 	+ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus \
 	+ucode-mod-nl80211 +ucode-mod-rtnl +ucode-mod-digest \
 	@!PACKAGE_luci-app-mtk
