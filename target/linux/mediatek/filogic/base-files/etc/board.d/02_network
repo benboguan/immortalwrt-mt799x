@@ -301,6 +301,9 @@ mediatek_setup_macs()
 		sed -i "s/^MacAddress_Default=.*/MacAddress_Default=$wifi_mac/" /etc/wireless/mediatek/mt7992.b0.dat
 		wifi_mac=$(macaddr_add_first_byte "$wifi_mac" 2)
 		sed -i "s/^MacAddress_Default=.*/MacAddress_Default=$wifi_mac/" /etc/wireless/mediatek/mt7992.b1.dat
+		# 为 hnat 派生独立 MAC（+4，避开 wan +1、wifi +2）
+		hnat_mac=$(macaddr_add "$lan_mac" 4)
+		ucidef_set_network_device_mac "hnat" "$hnat_mac"
 		;;
 	mediatek,mt7987*|\
 	mediatek,mt7988*)
