@@ -133,12 +133,28 @@ function merge_board(board, devs) {
 	for (let phy, info in devs) {
 		let entry = board.wlan[phy];
 
-		if (entry?.path != null)
+		if (entry?.path != null) {
+			if (entry.info && entry.info.bands) {
+				let allowed = {};
+				for (let band in info.bands)
+					allowed[uc(band)] = true;
+
+				for (let band_name in entry.info.bands) {
+					if (!allowed[band_name])
+						delete entry.info.bands[band_name];
+				}
+			}
 			continue;
+		}
 
 		entry = board.wlan[phy] = entry ?? {};
 		entry.path ??= info.path;
 		entry.info ??= { mtwifi: true, bands: {}, radios: [] };
+
+		if (entry.info.bands && length(entry.info.bands)) {
+			for (let b in entry.info.bands)
+				delete entry.info.bands[b];
+		}
 
 		for (let band in info.bands) {
 			let name = uc(band);
