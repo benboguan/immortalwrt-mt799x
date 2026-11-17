@@ -29,7 +29,7 @@ Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/wps_supplicant.c
 +	}
 +	
 +	wpa_printf(MSG_DEBUG, "WPS: AP found from BSS table");
-+	ie = wpa_bss_get_rsne(bss);
++	ie = wpa_bss_get_rsne(wpa_s, bss);
 +	if (ie && wpa_parse_wpa_ie(ie, 2 + ie[1], &adv) == 0) {
 +		if(adv.key_mgmt & WPA_KEY_MGMT_SAE) {
 +			add_sae_val = 1;

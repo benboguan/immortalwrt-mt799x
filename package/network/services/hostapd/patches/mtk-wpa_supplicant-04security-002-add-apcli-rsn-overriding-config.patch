@@ -1,0 +1,582 @@
+Index: hostapd/wpa_supplicant/bss.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/bss.c
++++ hostapd/wpa_supplicant/bss.c
+@@ -1450,7 +1450,7 @@ int wpa_bss_ext_capab(const struct wpa_b
+ 				    capab);
+ }
+ 
+-const u8 * wpa_bss_get_rsne(const struct wpa_bss *bss)
++const u8 * wpa_bss_get_rsne(struct wpa_supplicant *wpa_s, const struct wpa_bss *bss)
+ {
+ 	const u8 *ie;
+ 
+@@ -1459,17 +1459,23 @@ const u8 * wpa_bss_get_rsne(const struct
+ 		return wpa_bss_get_ie(bss, WLAN_EID_RSN);
+ #endif /* CONFIG_TESTING_OPTIONS */
+ 
+-	ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_2_IE_VENDOR_TYPE);
+-	if (ie)
+-		return ie;
+-	ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_IE_VENDOR_TYPE);
+-	if (ie)
+-		return ie;
++	if (wpa_s && wpa_s->conf) {
++		wpa_printf(MSG_DEBUG,"[%s][%d] rsn_overriding = %d\n", __func__, __LINE__,
++			wpa_s->conf->rsn_overriding);
++		if (wpa_s->conf->rsn_overriding == RSN_OVERRIDING_ENABLED) {
++			ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_2_IE_VENDOR_TYPE);
++			if (ie)
++				return ie;
++			ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_IE_VENDOR_TYPE);
++			if (ie)
++				return ie;
++		}
++	}
+ 	return wpa_bss_get_ie(bss, WLAN_EID_RSN);
+ }
+ 
+ 
+-const u8 * wpa_bss_get_rsnxe(const struct wpa_bss *bss)
++const u8 * wpa_bss_get_rsnxe(struct wpa_supplicant *wpa_s, const struct wpa_bss *bss)
+ {
+ 	const u8 *ie;
+ 
+@@ -1478,9 +1484,15 @@ const u8 * wpa_bss_get_rsnxe(const struc
+ 		return wpa_bss_get_ie(bss, WLAN_EID_RSNX);
+ #endif /* CONFIG_TESTING_OPTIONS */
+ 
+-	ie = wpa_bss_get_vendor_ie(bss, RSNXE_OVERRIDE_IE_VENDOR_TYPE);
+-	if (ie)
+-		return ie;
++	if (wpa_s && wpa_s->conf) {
++		wpa_printf(MSG_DEBUG,"[%s][%d] rsn_overriding = %d\n", __func__, __LINE__,
++			wpa_s->conf->rsn_overriding);
++		if (wpa_s->conf->rsn_overriding == RSN_OVERRIDING_ENABLED) {
++			ie = wpa_bss_get_vendor_ie(bss, RSNXE_OVERRIDE_IE_VENDOR_TYPE);
++			if (ie)
++				return ie;
++		}
++	}
+ 	return wpa_bss_get_ie(bss, WLAN_EID_RSNX);
+ }
+ 
+Index: hostapd/wpa_supplicant/bss.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/bss.h
++++ hostapd/wpa_supplicant/bss.h
+@@ -213,7 +213,7 @@ void calculate_update_time(const struct
+ 			   unsigned int age_ms,
+ 			   struct os_reltime *update_time);
+ 
+-const u8 * wpa_bss_get_rsne(const struct wpa_bss *bss);
+-const u8 * wpa_bss_get_rsnxe(const struct wpa_bss *bss);
++const u8 * wpa_bss_get_rsne(struct wpa_supplicant *wpa_s, const struct wpa_bss *bss);
++const u8 * wpa_bss_get_rsnxe(struct wpa_supplicant *wpa_s, const struct wpa_bss *bss);
+ 
+ #endif /* BSS_H */
+Index: hostapd/wpa_supplicant/config.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/config.c
++++ hostapd/wpa_supplicant/config.c
+@@ -2760,6 +2760,7 @@ static const struct parse_data ssid_fiel
+ 	{ INT_RANGE(beacon_prot, 0, 1) },
+ 	{ INT_RANGE(transition_disable, 0, 255) },
+ 	{ INT_RANGE(sae_pk, 0, 2) },
++	{ INT_RANGE(rsn_overriding, 0, 1)},
+ };
+ 
+ #undef OFFSET
+@@ -3279,6 +3280,7 @@ void wpa_config_set_network_defaults(str
+ 	ssid->mac_addr = -1;
+ 	ssid->max_oper_chwidth = DEFAULT_MAX_OPER_CHWIDTH;
+ 	ssid->seq_num = 0;
++	ssid->rsn_overriding = RSN_OVERRIDING_DISABLED;
+ }
+ 
+ 
+@@ -5447,6 +5449,7 @@ static const struct global_parse_data gl
+ 	{ INT_RANGE(extended_key_id, 0, 1), 0 },
+ #endif /* CONFIG_WNM */
+ 	{ INT_RANGE(wowlan_disconnect_on_deinit, 0, 1), 0},
++	{ INT_RANGE(rsn_overriding, 0, 1), 0},
+ #ifdef CONFIG_PASN
+ #ifdef CONFIG_TESTING_OPTIONS
+ 	{ INT_RANGE(force_kdk_derivation, 0, 1), 0 },
+Index: hostapd/wpa_supplicant/config.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/config.h
++++ hostapd/wpa_supplicant/config.h
+@@ -1725,6 +1725,11 @@ struct wpa_config {
+ 	 */
+ 	int wowlan_disconnect_on_deinit;
+ 
++	/**
++	 * rsn_overriding - RSN overriding (default behavior)
++	 */
++	enum wpas_rsn_overriding rsn_overriding;
++
+ #ifdef CONFIG_PASN
+ #ifdef CONFIG_TESTING_OPTIONS
+ 	/*
+Index: hostapd/wpa_supplicant/config_file.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/config_file.c
++++ hostapd/wpa_supplicant/config_file.c
+@@ -881,7 +881,7 @@ static void wpa_config_write_network(FIL
+ #ifdef CONFIG_HE_OVERRIDES
+ 	INT(disable_he);
+ #endif /* CONFIG_HE_OVERRIDES */
+-
++	INT_DEF(rsn_overriding, RSN_OVERRIDING_DISABLED);
+ #undef STR
+ #undef INT
+ #undef INT_DEF
+@@ -1578,6 +1578,9 @@ static void wpa_config_write_global(FILE
+ 	if (config->wowlan_disconnect_on_deinit)
+ 		fprintf(f, "wowlan_disconnect_on_deinit=%d\n",
+ 			config->wowlan_disconnect_on_deinit);
++	if (config->rsn_overriding)
++		fprintf(f, "rsn_overriding=%d\n",
++			config->rsn_overriding);
+ }
+ 
+ #endif /* CONFIG_NO_CONFIG_WRITE */
+Index: hostapd/wpa_supplicant/config_ssid.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/config_ssid.h
++++ hostapd/wpa_supplicant/config_ssid.h
+@@ -74,6 +74,17 @@ enum sae_pk_mode {
+ };
+ 
+ /**
++ * rsn_overriding - RSN overriding
++ *
++ * 0 = Disabled
++ * 1 = Forced to be enabled even without driver capability indication
++ */
++enum wpas_rsn_overriding {
++	RSN_OVERRIDING_DISABLED = 0,
++	RSN_OVERRIDING_ENABLED = 1,
++};
++
++/**
+  * struct wpa_ssid - Network configuration data
+  *
+  * This structure includes all the configuration variables for a network. This
+@@ -1208,6 +1219,11 @@ struct wpa_ssid {
+ 	 * 2 = both hunting-and-pecking loop and hash-to-element enabled
+ 	 */
+ 	int sae_pwe;
++	/**
++	 * rsn_overriding - RSN overriding (per-network override for the global
++	 *	parameter with the same name)
++	 */
++	enum wpas_rsn_overriding rsn_overriding;
+ };
+ 
+ #endif /* CONFIG_SSID_H */
+Index: hostapd/wpa_supplicant/ctrl_iface.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/ctrl_iface.c
++++ hostapd/wpa_supplicant/ctrl_iface.c
+@@ -3082,12 +3082,12 @@ static int wpa_supplicant_ctrl_iface_sca
+ 	ie = wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE);
+ 	if (ie)
+ 		pos = wpa_supplicant_ie_txt(pos, end, "WPA", ie, 2 + ie[1]);
+-	ie2 = wpa_bss_get_rsne(bss);
++	ie2 = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (ie2) {
+ 		pos = wpa_supplicant_ie_txt(pos, end, mesh ? "RSN" : "WPA2",
+ 					    ie2, 2 + ie2[1]);
+ 	}
+-	rsnxe = wpa_bss_get_rsnxe(bss);
++	rsnxe = wpa_bss_get_rsnxe(wpa_s, bss);
+ 	if (ieee802_11_rsnx_capab(rsnxe, WLAN_RSNX_CAPAB_SAE_H2E)) {
+ 		ret = os_snprintf(pos, end - pos, "[SAE-H2E]");
+ 		if (os_snprintf_error(end - pos, ret))
+@@ -5193,12 +5193,12 @@ static int print_bss_info(struct wpa_sup
+ 		if (ie)
+ 			pos = wpa_supplicant_ie_txt(pos, end, "WPA", ie,
+ 						    2 + ie[1]);
+-		ie2 = wpa_bss_get_rsne(bss);
++		ie2 = wpa_bss_get_rsne(wpa_s, bss);
+ 		if (ie2)
+ 			pos = wpa_supplicant_ie_txt(pos, end,
+ 						    mesh ? "RSN" : "WPA2", ie2,
+ 						    2 + ie2[1]);
+-		rsnxe = wpa_bss_get_rsnxe(bss);
++		rsnxe = wpa_bss_get_rsnxe(wpa_s, bss);
+ 		if (ieee802_11_rsnx_capab(rsnxe, WLAN_RSNX_CAPAB_SAE_H2E)) {
+ 			ret = os_snprintf(pos, end - pos, "[SAE-H2E]");
+ 			if (os_snprintf_error(end - pos, ret))
+Index: hostapd/wpa_supplicant/dbus/dbus_new_handlers.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/dbus/dbus_new_handlers.c
++++ hostapd/wpa_supplicant/dbus/dbus_new_handlers.c
+@@ -5302,7 +5302,7 @@ dbus_bool_t wpas_dbus_getter_bss_rsn(
+ 		return FALSE;
+ 
+ 	os_memset(&wpa_data, 0, sizeof(wpa_data));
+-	ie = wpa_bss_get_rsne(res);
++	ie = wpa_bss_get_rsne(args->wpa_s, res);
+ 	if (ie && wpa_parse_wpa_ie(ie, 2 + ie[1], &wpa_data) < 0) {
+ 		dbus_set_error_const(error, DBUS_ERROR_FAILED,
+ 				     "failed to parse RSN IE");
+Index: hostapd/wpa_supplicant/dpp_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/dpp_supplicant.c
++++ hostapd/wpa_supplicant/dpp_supplicant.c
+@@ -4336,7 +4336,7 @@ int wpas_dpp_check_connect(struct wpa_su
+ 
+ 	if (!(ssid->key_mgmt & WPA_KEY_MGMT_DPP) || !bss)
+ 		return 0; /* Not using DPP AKM - continue */
+-	rsn = wpa_bss_get_rsne(bss);
++	rsn = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (rsn && wpa_parse_wpa_ie(rsn, 2 + rsn[1], &ied) == 0 &&
+ 	    !(ied.key_mgmt & WPA_KEY_MGMT_DPP))
+ 		return 0; /* AP does not support DPP AKM - continue */
+Index: hostapd/wpa_supplicant/events.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/events.c
++++ hostapd/wpa_supplicant/events.c
+@@ -587,7 +587,7 @@ static int wpa_supplicant_ssid_bss_match
+ 		 (ssid->key_mgmt & WPA_KEY_MGMT_IEEE8021X_NO_WPA));
+ #endif /* CONFIG_WEP */
+ 
+-	rsn_ie = wpa_bss_get_rsne(bss);
++	rsn_ie = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (is_6ghz_bss && !rsn_ie) {
+ 		if (debug_print)
+ 			wpa_dbg(wpa_s, MSG_DEBUG,
+@@ -1030,7 +1030,7 @@ static void owe_trans_ssid(struct wpa_su
+ 	struct wpa_bss *open_bss;
+ 
+ 	owe = wpa_bss_get_vendor_ie(bss, OWE_IE_VENDOR_TYPE);
+-	if (!owe || !wpa_bss_get_rsne(bss))
++	if (!owe || !wpa_bss_get_rsne(wpa_s, bss))
+ 		return;
+ 
+ 	pos = owe + 6;
+@@ -1157,7 +1157,7 @@ static bool sae_pk_acceptable_bss_with_p
+ 
+ 		if (bss == orig_bss)
+ 			continue;
+-		ie = wpa_bss_get_rsnxe(bss);
++		ie = wpa_bss_get_rsnxe(wpa_s, bss);
+ 		if (!(ieee802_11_rsnx_capab(ie, WLAN_RSNX_CAPAB_SAE_PK)))
+ 			continue;
+ 
+@@ -1196,7 +1196,7 @@ static bool wpa_scan_res_ok(struct wpa_s
+ 
+ 	ie = wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE);
+ 	wpa = ie && ie[1];
+-	ie = wpa_bss_get_rsne(bss);
++	ie = wpa_bss_get_rsne(wpa_s, bss);
+ 	wpa |= ie && ie[1];
+ 	if (ie && wpa_parse_wpa_ie_rsn(ie, 2 + ie[1], &data) == 0 &&
+ 	    (data.key_mgmt & WPA_KEY_MGMT_OSEN))
+@@ -1205,7 +1205,7 @@ static bool wpa_scan_res_ok(struct wpa_s
+ 	osen = ie != NULL;
+ 
+ #ifdef CONFIG_SAE
+-	ie = wpa_bss_get_rsnxe(bss);
++	ie = wpa_bss_get_rsnxe(wpa_s, bss);
+ 	if (ie && ie[0] == WLAN_EID_VENDOR_SPECIFIC && ie[1] >= 4 + 1)
+ 		rsnxe_capa = ie[4 + 2];
+ 	else if (ie && ie[1] >= 1)
+@@ -1271,7 +1271,7 @@ static bool wpa_scan_res_ok(struct wpa_s
+ 		return false;
+ 	}
+ 
+-	// target BSS Hiddenmode cp ssid set only when apcli set bssid param 
++	// target BSS Hiddenmode cp ssid set only when apcli set bssid param
+ 	if (ssid->bssid_set && match_ssid_len == 0 && os_memcmp(bss->bssid, ssid->bssid, ETH_ALEN) == 0) {
+ 		os_memcpy(bss->ssid, ssid->ssid, ssid->ssid_len);
+ 		bss->ssid_len = ssid->ssid_len;
+@@ -1547,7 +1547,7 @@ struct wpa_ssid * wpa_scan_res_match(str
+ 	ie = wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE);
+ 	wpa_ie_len = ie ? ie[1] : 0;
+ 
+-	ie = wpa_bss_get_rsne(bss);
++	ie = wpa_bss_get_rsne(wpa_s, bss);
+ 	rsn_ie_len = ie ? ie[1] : 0;
+ 
+ 	ie = wpa_bss_get_vendor_ie(bss, OSEN_IE_VENDOR_TYPE);
+@@ -1891,7 +1891,7 @@ static void wpa_supplicant_rsn_preauth_s
+ 		if (ssid == NULL)
+ 			continue;
+ 
+-		rsn = wpa_bss_get_rsne(bss);
++		rsn = wpa_bss_get_rsne(wpa_s, bss);
+ 		if (rsn == NULL)
+ 			continue;
+ 
+@@ -2847,7 +2847,7 @@ static int wpa_supplicant_use_own_rsne_p
+ 	if (wpa_s->wpa_proto & (WPA_PROTO_RSN | WPA_PROTO_OSEN)) {
+ 		const u8 *bss_rsn;
+ 
+-		bss_rsn = wpa_bss_get_rsne(bss);
++		bss_rsn = wpa_bss_get_rsne(wpa_s, bss);
+ 		if (bss_rsn) {
+ 			p = bss_rsn;
+ 			len = 2 + bss_rsn[1];
+@@ -3310,8 +3310,8 @@ static int wpa_supplicant_assoc_update_i
+ 
+ 	bss_wpa = wpa_bss_get_vendor_ie(wpa_s->current_bss,
+ 					WPA_IE_VENDOR_TYPE);
+-	bss_rsn = wpa_bss_get_rsne(wpa_s->current_bss);
+-	bss_rsnx = wpa_bss_get_rsnxe(wpa_s->current_bss);
++	bss_rsn = wpa_bss_get_rsne(wpa_s, wpa_s->current_bss);
++	bss_rsnx = wpa_bss_get_rsnxe(wpa_s, wpa_s->current_bss);
+ 
+ 	if (wpa_sm_set_ap_wpa_ie(wpa_s->wpa, bss_wpa,
+ 				 bss_wpa ? 2 + bss_wpa[1] : 0) ||
+Index: hostapd/wpa_supplicant/hs20_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/hs20_supplicant.c
++++ hostapd/wpa_supplicant/hs20_supplicant.c
+@@ -1088,7 +1088,7 @@ void hs20_osu_icon_fetch(struct wpa_supp
+ 		prov_anqp = bss->anqp->hs20_osu_providers_list;
+ 		if (prov_anqp == NULL)
+ 			continue;
+-		ie = wpa_bss_get_rsne(bss);
++		ie = wpa_bss_get_rsne(wpa_s, bss);
+ 		if (ie && wpa_parse_wpa_ie(ie, 2 + ie[1], &data) == 0 &&
+ 		    (data.key_mgmt & WPA_KEY_MGMT_OSEN)) {
+ 			osu_ssid2 = bss->ssid;
+Index: hostapd/wpa_supplicant/interworking.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/interworking.c
++++ hostapd/wpa_supplicant/interworking.c
+@@ -1705,7 +1705,7 @@ int interworking_connect(struct wpa_supp
+ 		   " for connection",
+ 		   MAC2STR(bss->bssid));
+ 
+-	if (!wpa_bss_get_rsne(bss)) {
++	if (!wpa_bss_get_rsne(wpa_s, bss)) {
+ 		/*
+ 		 * We currently support only HS 2.0 networks and those are
+ 		 * required to use WPA2-Enterprise.
+@@ -2438,7 +2438,7 @@ static struct wpa_bss * pick_best_roamin
+ 		cred2 = interworking_credentials_available(wpa_s, bss, NULL);
+ 		if (!cred2)
+ 			continue;
+-		if (!wpa_bss_get_rsne(bss))
++		if (!wpa_bss_get_rsne(wpa_s, bss))
+ 			continue;
+ 		prio = roaming_prio(wpa_s, cred2, bss);
+ 		wpa_printf(MSG_DEBUG, "Interworking: roaming_prio=%u for BSS "
+@@ -2490,7 +2490,7 @@ static void interworking_select_network(
+ 		if (!cred)
+ 			continue;
+ 
+-		if (!wpa_bss_get_rsne(bss)) {
++		if (!wpa_bss_get_rsne(wpa_s, bss)) {
+ 			/*
+ 			 * We currently support only HS 2.0 networks and those
+ 			 * are required to use WPA2-Enterprise.
+Index: hostapd/wpa_supplicant/mbo.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/mbo.c
++++ hostapd/wpa_supplicant/mbo.c
+@@ -115,7 +115,7 @@ void wpas_mbo_check_pmf(struct wpa_suppl
+ 		return;
+ 	if (oce && oce[1] >= 1 && (oce[2] & OCE_IS_STA_CFON))
+ 		return; /* STA-CFON is not required to enable PMF */
+-	rsne = wpa_bss_get_rsne(bss);
++	rsne = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (!rsne || wpa_parse_wpa_ie(rsne, 2 + rsne[1], &ie) < 0)
+ 		return; /* AP is not using RSN */
+ 
+Index: hostapd/wpa_supplicant/pasn_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/pasn_supplicant.c
++++ hostapd/wpa_supplicant/pasn_supplicant.c
+@@ -1145,7 +1145,7 @@ static struct wpa_bss * wpas_pasn_allowe
+ 		return NULL;
+ 	}
+ 
+-	rsne = wpa_bss_get_rsne(bss);
++	rsne = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (!rsne) {
+ 		wpa_printf(MSG_DEBUG, "PASN: BSS without RSNE");
+ 		return NULL;
+@@ -1201,13 +1201,13 @@ static void wpas_pasn_auth_start_cb(stru
+ 		goto fail;
+ 	}
+ 
+-	rsne = wpa_bss_get_rsne(bss);
++	rsne = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (!rsne) {
+ 		wpa_printf(MSG_DEBUG, "PASN: BSS without RSNE");
+ 		goto fail;
+ 	}
+ 
+-	rsnxe = wpa_bss_get_rsnxe(bss);
++	rsnxe = wpa_bss_get_rsnxe(wpa_s, bss);
+ 
+ 	ret = wpas_pasn_start(wpa_s, awork->bssid, awork->akmp, awork->cipher,
+ 			      awork->group, bss->freq, rsne, *(rsne + 1) + 2,
+Index: hostapd/wpa_supplicant/sme.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/sme.c
++++ hostapd/wpa_supplicant/sme.c
+@@ -165,7 +165,7 @@ static struct wpabuf * sme_auth_build_sa
+ 	if (bss) {
+ 		const u8 *rsnxe;
+ 
+-		rsnxe = wpa_bss_get_rsnxe(bss);
++		rsnxe = wpa_bss_get_rsnxe(wpa_s, bss);
+ 
+ 		if (!rsnxe) {
+ 			bss = wpa_bss_get_bssid_with_probe(wpa_s, bssid);
+@@ -173,7 +173,7 @@ static struct wpabuf * sme_auth_build_sa
+ 			if (bss) {
+ 				wpa_printf(MSG_DEBUG,
+ 		   		"SAE: get empty rsnxe, try to use another non-hidden bss entry(ssid=%s)!", bss->ssid);
+-				rsnxe = wpa_bss_get_rsnxe(bss);
++				rsnxe = wpa_bss_get_rsnxe(wpa_s, bss);
+ 			}
+ 		}
+ 
+@@ -509,7 +509,7 @@ static void sme_send_authentication(stru
+ 		const u8 *rsn;
+ 		struct wpa_ie_data ied;
+ 
+-		rsn = wpa_bss_get_rsne(bss);
++		rsn = wpa_bss_get_rsne(wpa_s, bss);
+ 		if (!rsn) {
+ 			wpa_dbg(wpa_s, MSG_DEBUG,
+ 				"SAE enabled, but target BSS does not advertise RSN");
+@@ -544,7 +544,7 @@ static void sme_send_authentication(stru
+ #endif /* CONFIG_WEP */
+ 
+ 	if ((wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE) ||
+-	     wpa_bss_get_rsne(bss)) &&
++	     wpa_bss_get_rsne(wpa_s, bss)) &&
+ 	    wpa_key_mgmt_wpa(ssid->key_mgmt)) {
+ 		int try_opportunistic;
+ 		const u8 *cache_id = NULL;
+@@ -663,7 +663,7 @@ static void sme_send_authentication(stru
+ 		wpa_dbg(wpa_s, MSG_DEBUG, "SME: FT mobility domain %02x%02x",
+ 			md[0], md[1]);
+ 
+-		omit_rsnxe = !wpa_bss_get_rsnxe(bss);
++		omit_rsnxe = !wpa_bss_get_rsnxe(wpa_s, bss);
+ 		if (wpa_s->sme.assoc_req_ie_len + 5 <
+ 		    sizeof(wpa_s->sme.assoc_req_ie)) {
+ 			struct rsn_mdie *mdie;
+@@ -692,7 +692,7 @@ static void sme_send_authentication(stru
+ 
+ 	wpa_s->sme.mfp = wpas_get_ssid_pmf(wpa_s, ssid);
+ 	if (wpa_s->sme.mfp != NO_MGMT_FRAME_PROTECTION) {
+-		const u8 *rsn = wpa_bss_get_rsne(bss);
++		const u8 *rsn = wpa_bss_get_rsne(wpa_s, bss);
+ 		struct wpa_ie_data _ie;
+ 		if (rsn && wpa_parse_wpa_ie(rsn, 2 + rsn[1], &_ie) == 0 &&
+ 		    _ie.capabilities &
+@@ -2171,6 +2171,14 @@ mscs_fail:
+ 			goto skip_rsne_override;
+ 	}
+ #endif /* CONFIG_TESTING_OPTIONS */
++	if (wpa_s && wpa_s->conf) {
++		wpa_printf(MSG_DEBUG, "[%s][%d] rsn_overriding = %d\n", __func__, __LINE__,
++			wpa_s->conf->rsn_overriding);
++		if (wpa_s->conf->rsn_overriding != RSN_OVERRIDING_ENABLED) {
++			goto skip_rsne_override;
++		}
++	}
++
+ 	if (wpa_s->current_bss &&
+ 	    wpa_bss_get_vendor_ie(wpa_s->current_bss,
+ 				  RSNE_OVERRIDE_2_IE_VENDOR_TYPE) &&
+@@ -2213,9 +2221,7 @@ mscs_fail:
+ 		wpa_printf(MSG_INFO,
+ 				   "it is normal flow, not RSN overriding flow");
+ 
+-#ifdef CONFIG_TESTING_OPTIONS
+ skip_rsne_override:
+-#endif /* CONFIG_TESTING_OPTIONS */
+ 
+ 	params.bssid = bssid;
+ 	params.ssid = wpa_s->sme.ssid;
+Index: hostapd/wpa_supplicant/wpa_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/wpa_supplicant.c
++++ hostapd/wpa_supplicant/wpa_supplicant.c
+@@ -1429,8 +1429,8 @@ int wpa_supplicant_set_suites(struct wpa
+ 
+ 	if (bss) {
+ 		bss_wpa = wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE);
+-		bss_rsn = wpa_bss_get_rsne(bss);
+-		bss_rsnx = wpa_bss_get_rsnxe(bss);
++		bss_rsn = wpa_bss_get_rsne(wpa_s, bss);
++		bss_rsnx = wpa_bss_get_rsnxe(wpa_s, bss);
+ 		bss_osen = wpa_bss_get_vendor_ie(bss, OSEN_IE_VENDOR_TYPE);
+ 	} else {
+ 		bss_wpa = bss_rsn = bss_rsnx = bss_osen = NULL;
+@@ -2547,7 +2547,7 @@ static bool ibss_mesh_is_80mhz_avail(int
+ 		if (!chan ||
+ 		    chan->flag & HOSTAPD_CHAN_DISABLED)
+ 			return false;
+-		
++
+ 		if (!dfs_enabled && chan->flag & (HOSTAPD_CHAN_RADAR | HOSTAPD_CHAN_NO_IR))
+ 			return false;
+ 	}
+@@ -3089,7 +3089,7 @@ static u8 * wpas_populate_assoc_ies(
+ 	}
+ 
+ 	if (bss && (wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE) ||
+-		    wpa_bss_get_rsne(bss)) &&
++		    wpa_bss_get_rsne(wpa_s, bss)) &&
+ 	    wpa_key_mgmt_wpa(ssid->key_mgmt)) {
+ 		int try_opportunistic;
+ 		const u8 *cache_id = NULL;
+@@ -3546,6 +3546,14 @@ mscs_end:
+ 		wpa_ie_len += multi_ap_ie_len;
+ 	}
+ 
++	if (wpa_s && wpa_s->conf) {
++		wpa_printf(MSG_DEBUG,"[%s][%d] rsn_overriding = %d\n", __func__, __LINE__,
++		wpa_s->conf->rsn_overriding);
++		if (wpa_s->conf->rsn_overriding != RSN_OVERRIDING_ENABLED) {
++			goto end;
++		}
++	}
++
+ 	wpa_sm_set_param(wpa_s->wpa, WPA_PARAM_RSN_OVERRIDE,
+ 			 RSN_OVERRIDE_NOT_USED);
+ 
+@@ -3582,7 +3590,7 @@ mscs_end:
+ 	} else
+ 		wpa_printf(MSG_INFO,
+ 				   "it is normal flow, not RSN overriding flow");
+-
++end:
+ 	params->wpa_ie = wpa_ie;
+ 	params->wpa_ie_len = wpa_ie_len;
+ 	params->auth_alg = algs;
+@@ -4115,7 +4123,7 @@ static void wpas_start_assoc_cb(struct w
+ 
+ 	params.mgmt_frame_protection = wpas_get_ssid_pmf(wpa_s, ssid);
+ 	if (params.mgmt_frame_protection != NO_MGMT_FRAME_PROTECTION && bss) {
+-		const u8 *rsn = wpa_bss_get_rsne(bss);
++		const u8 *rsn = wpa_bss_get_rsne(wpa_s, bss);
+ 		struct wpa_ie_data ie;
+ 		if (rsn && wpa_parse_wpa_ie(rsn, 2 + rsn[1], &ie) == 0 &&
+ 		    ie.capabilities &
+Index: hostapd/wpa_supplicant/wps_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/wps_supplicant.c
++++ hostapd/wpa_supplicant/wps_supplicant.c
+@@ -216,7 +216,7 @@ static void wpas_wps_security_workaround
+ 
+ 	wpa_printf(MSG_DEBUG, "WPS: AP found from BSS table");
+ 
+-	ie = wpa_bss_get_rsne(bss);
++	ie = wpa_bss_get_rsne(wpa_s, bss);
+ 	if (ie && wpa_parse_wpa_ie(ie, 2 + ie[1], &adv) == 0) {
+ 		wpa2 = 1;
+ 		if (adv.pairwise_cipher & WPA_CIPHER_CCMP)

@@ -126,7 +126,7 @@ Signed-off-by: Amit Khatri <amit.khatri@mediatek.com>
 +#ifdef CONFIG_EHT_OVERRIDES
 +	INT(disable_eht);
 +#endif /* CONFIG_EHT_OVERRIDES */
- 
+ 	INT_DEF(rsn_overriding, RSN_OVERRIDING_DISABLED);
  #undef STR
  #undef INT
 --- a/wpa_supplicant/config_ssid.h
