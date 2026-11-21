@@ -17,6 +17,7 @@ set_preinit_iface() {
 	cudy,ap3000-v1|\
 	cudy,ap3000outdoor-v1|\
 	cudy,re3000-v1|\
+	hiveton,h5000m*|\
 	ubnt,unifi-6-lr|\
 	zyxel,nwa50ax-pro)
 		ip link set eth0 up
