@@ -261,7 +261,7 @@
 &hnat {
 	mtketh-wan = "eth1";
 	mtketh-lan = "eth0";
-	mtketh-lan2 = "hnat";
+	mtketh-lan2 = "none";
 	mtketh-ppd = "hnat";
 	mtketh-max-gmac = <2>;
 	mtketh-ppe-num = <2>;

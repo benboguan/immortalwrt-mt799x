@@ -26,8 +26,6 @@
 #include <net/udp.h>
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_conntrack_acct.h>
-#include <net/route.h>
-#include <net/addrconf.h>
 
 #include "nf_hnat_mtk.h"
 #include "hnat_api.h"
@@ -472,7 +470,7 @@ static struct net_device *hnat_get_up_dev(const char *name)
 	if (!dev)
 		return NULL;
 
-	if (!(dev->flags & IFF_UP) || !netif_carrier_ok(dev)) {
+	if (!(dev->flags & IFF_UP)) {
 		dev_put(dev);
 		return NULL;
 	}
@@ -482,7 +480,7 @@ static struct net_device *hnat_get_up_dev(const char *name)
 
 void ppd_dev_setting(void)
 {
-	struct net_device *rx = NULL, *tx = NULL;
+	struct net_device *rx = NULL, *tx = NULL, *bond = NULL;
 	struct net_device *br, *dev;
 	struct list_head *pos;
 	const char * const rx_names[] = {
@@ -492,26 +490,30 @@ void ppd_dev_setting(void)
 	};
 	int i;
 
-	/* RX：up + carrier_ok */
+	/* RX：up */
 	for (i = 0; i < ARRAY_SIZE(rx_names) && !rx; i++)
 		rx = hnat_get_up_dev(rx_names[i]);
 
 	/* TX：br-lan, bond */
 	if ((br = dev_get_by_name(&init_net, "br-lan"))) {
 		netdev_for_each_lower_dev(br, dev, pos) {
-			if (!(dev->flags & IFF_UP) || !netif_carrier_ok(dev))
+			if (!(dev->flags & IFF_UP) || netif_is_bridge_master(dev))
 				continue;
 
 			if (IS_BOND(dev)) {
-				if (tx)
-					dev_put(tx);
-				tx = dev_get_by_name(&init_net, dev->name);
+				bond = dev_get_by_name(&init_net, dev->name);
 				break;
 			}
 			if (!tx)
 				tx = dev_get_by_name(&init_net, dev->name);
 		}
 		dev_put(br);
+	}
+
+	if (bond) {
+		if (tx)
+			dev_put(tx);
+		tx = bond;
 	}
 
 	/* Single-arm routing */
@@ -1314,14 +1316,6 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 		} else if ((iph->protocol == IPPROTO_TCP) ||
 			   (iph->protocol == IPPROTO_UDP) ||
 			   (iph->protocol == IPPROTO_IPV6)) {
-				/* Never offload flows destined to a locally assigned
-				 * address (the router's own LAN/WAN IP). Offloading
-				 * them bypasses the local INPUT chain and breaks
-				 * admin/LuCI access from wireless clients.
-				 */
-				if (inet_addr_type(&init_net, iph->daddr) == RTN_LOCAL)
-					return 0;
-
 			/* do not accelerate non tcp/udp traffic */
 			return 1;
 		}
@@ -1341,11 +1335,6 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 
 		if ((ip6h->nexthdr == NEXTHDR_TCP) ||
 		    (ip6h->nexthdr == NEXTHDR_UDP)) {
-			/* Same local-destination guard as IPv4 above. */
-			if ((ipv6_addr_type(&ip6h->daddr) & IPV6_ADDR_UNICAST) &&
-			    ipv6_chk_addr(&init_net, &ip6h->daddr, NULL, 0))
-				return 0;
-
 			return 1;
 		} else if (ip6h->nexthdr == NEXTHDR_IPIP) {
 			iph = skb_header_pointer(skb, IPV6_HDR_LEN + h_offset,
@@ -4816,8 +4805,9 @@ mtk_hnat_br_nf_local_out(void *priv, struct sk_buff *skb,
 	if (!skb)
 		goto drop;
 	
-	if ((!strncmp(state->out->name, "ra", 2)) && !is_from_extge(skb) && !(FROM_GE_PPD(skb) || FROM_GE_LAN(skb) ||
-		FROM_GE_WAN(skb) || FROM_WED(skb) || FROM_EXT(skb) || FROM_GE_VIRTUAL(skb))) {
+	if (l2br_toggle && !strncmp(state->out->name, "ra", 2) && !is_from_extge(skb) &&
+		!(FROM_GE_PPD(skb) || FROM_GE_LAN(skb) || FROM_GE_WAN(skb) ||
+		FROM_WED(skb) || FROM_EXT(skb) || FROM_GE_VIRTUAL(skb))) {
 		if (!do_hnat_cpu_to_ge(skb))
 			return NF_STOLEN; 
 	}
