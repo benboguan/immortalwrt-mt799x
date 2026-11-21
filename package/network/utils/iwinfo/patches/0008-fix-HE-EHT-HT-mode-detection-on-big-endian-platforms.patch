@@ -38,7 +38,7 @@ index 3be2970..7f96da3 100644
  #include <stdlib.h>
  
  #include "iwinfo_nl80211.h"
-@@ -3493,6 +3494,9 @@ struct nl80211_modes
+@@ -3492,6 +3493,9 @@ struct nl80211_modes
  
  static void nl80211_eval_modelist(struct nl80211_modes *m)
  {
@@ -48,7 +48,7 @@ index 3be2970..7f96da3 100644
  	/* Treat any nonzero capability as 11n */
  	if (m->nl_ht > 0)
  	{
-@@ -3503,33 +3507,33 @@ static void nl80211_eval_modelist(struct nl80211_modes *m)
+@@ -3502,33 +3506,33 @@ static void nl80211_eval_modelist(struct nl80211_modes *m)
  			m->ht |= IWINFO_HTMODE_HT40;
  	}
  

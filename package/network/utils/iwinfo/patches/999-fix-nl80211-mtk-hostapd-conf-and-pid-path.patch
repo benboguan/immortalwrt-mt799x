@@ -1,14 +1,14 @@
 --- a/iwinfo_nl80211.c
 +++ b/iwinfo_nl80211.c
-@@ -28,6 +28,7 @@
- #include <fnmatch.h>
+@@ -29,6 +29,7 @@
  #include <stdarg.h>
+ #include <endian.h>
  #include <stdlib.h>
 +#include <signal.h>
  
  #include "iwinfo_nl80211.h"
  #include "mtk_nl80211.h" 
-@@ -904,24 +905,30 @@ static int __nl80211_hostapd_query(const char *ifname, ...)
+@@ -934,24 +935,30 @@ static int __nl80211_hostapd_query(const char *ifname, ...)
  	va_list ap, ap_cur;
  	char *phy, *search, *dest, *key, *val, buf[128];
  	int len, found = 0, match = 1;
@@ -48,7 +48,7 @@
  
  	if (!fp)
  		return 0;
-@@ -1199,24 +1205,41 @@
+@@ -1303,24 +1309,41 @@
  
  static void nl80211_hostapd_hup(const char *ifname)
  {

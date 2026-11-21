@@ -1,6 +1,6 @@
 --- a/iwinfo_nl80211.c
 +++ b/iwinfo_nl80211.c
-@@ -982,6 +982,79 @@ #define nl80211_hostapd_query
+@@ -986,6 +986,79 @@ #define nl80211_hostapd_query
  	__nl80211_hostapd_query(ifname, ##__VA_ARGS__, NULL)
  
  
@@ -80,7 +80,7 @@
  static inline int nl80211_wpactl_recv(int sock, char *buf, int blen)
  {
  	fd_set rfds;
-@@ -1972,14 +2045,54 @@ static int nl80211_get_encryption(const char *ifname
+@@ -1977,14 +2050,54 @@ static int nl80211_get_encryption(const char *ifname
  	char *p;
  	int opmode;
  	uint8_t wpa_version = 0;

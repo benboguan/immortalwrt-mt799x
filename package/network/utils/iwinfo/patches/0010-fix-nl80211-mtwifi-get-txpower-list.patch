@@ -1,6 +1,6 @@
 --- a/iwinfo_nl80211.c
 +++ b/iwinfo_nl80211.c
-@@ -2587,37 +2712,30 @@ static int nl80211_get_txpwrlist(const
+@@ -2741,37 +2741,30 @@ static int nl80211_get_txpwrlist(const
  static int nl80211_get_txpwrlist(const char *ifname, char *buf, int *len)
  {
  	int err, ch_cur;

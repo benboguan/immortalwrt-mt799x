@@ -1,0 +1,72 @@
+--- a/iwinfo_nl80211.c
++++ b/iwinfo_nl80211.c
+@@ -2050,9 +2050,11 @@ static int nl80211_get_encryption(const char *ifname
+ 	char *p;
+ 	int opmode;
+ 	uint8_t wpa_version = 0;
+-	char wpa[2], proto[16], wpa_key_mgmt[64], wpa_pairwise[16], wpa_groupwise[16];
++	char wpa[2], proto[16], wpa_key_mgmt[64], override_key_mgmt[64], override_key_mgmt2[64];
++	char override_pairwise[16], override_pairwise2[16], wpa_pairwise[16], wpa_groupwise[16];
+ 	char auth_algs[2], wep_key0[27], wep_key1[27], wep_key2[27], wep_key3[27];
+ 	char mode[16];
++	char *mgmt[3];
+ 
+ 	struct iwinfo_crypto_entry *c = (struct iwinfo_crypto_entry *)buf;
+ 
+@@ -2159,20 +2161,32 @@ static int nl80211_get_encryption(const char *ifname
+ 
+ 	/* Hostapd */
+ 	else if (nl80211_hostapd_query(ifname,
+-				"wpa",          wpa,          sizeof(wpa),
+-				"wpa_key_mgmt", wpa_key_mgmt, sizeof(wpa_key_mgmt),
+-				"wpa_pairwise", wpa_pairwise, sizeof(wpa_pairwise),
+-				"auth_algs",    auth_algs,    sizeof(auth_algs),
+-				"wep_key0",     wep_key0,     sizeof(wep_key0),
+-				"wep_key1",     wep_key1,     sizeof(wep_key1),
+-				"wep_key2",     wep_key2,     sizeof(wep_key2),
+-				"wep_key3",     wep_key3,     sizeof(wep_key3)))
++				"wpa",                     wpa,                sizeof(wpa),
++				"wpa_key_mgmt",            wpa_key_mgmt,       sizeof(wpa_key_mgmt),
++				"rsn_override_key_mgmt",   override_key_mgmt,  sizeof(override_key_mgmt),
++				"rsn_override_key_mgmt_2", override_key_mgmt2, sizeof(override_key_mgmt2),
++				"wpa_pairwise",            wpa_pairwise,       sizeof(wpa_pairwise),
++				"rsn_override_pairwise",   override_pairwise,  sizeof(override_pairwise),
++				"rsn_override_pairwise_2", override_pairwise2, sizeof(override_pairwise2),
++				"auth_algs",               auth_algs,          sizeof(auth_algs),
++				"wep_key0",                wep_key0,           sizeof(wep_key0),
++				"wep_key1",                wep_key1,           sizeof(wep_key1),
++				"wep_key2",                wep_key2,           sizeof(wep_key2),
++				"wep_key3",                wep_key3,           sizeof(wep_key3)))
+ 	{
+ 		c->wpa_version = 0;
+ 
+-		if (wpa_key_mgmt[0])
+-		{
+-			for (p = strtok(wpa_key_mgmt, " \t"); p != NULL; p = strtok(NULL, " \t"))
++		int i;
++		mgmt[0] = wpa_key_mgmt;
++		mgmt[1] = override_key_mgmt;
++		mgmt[2] = override_key_mgmt2;
++
++		for (i = 0; i < 3; i++)
++		{
++			if (!mgmt[i][0])
++				continue;
++
++			for (p = strtok(mgmt[i], " \t"); p != NULL; p = strtok(NULL, " \t"))
+ 			{
+ 				if (!strncmp(p, "WPA-", 4))
+ 					p += 4;
+@@ -2189,6 +2203,12 @@ static int nl80211_get_encryption(const char *ifname
+ 		if (wpa_pairwise[0])
+ 			parse_wpa_ciphers(wpa_pairwise, &c->pair_ciphers);
+ 
++		if (override_pairwise[0])
++			parse_wpa_ciphers(override_pairwise, &c->pair_ciphers);
++
++		if (override_pairwise2[0])
++			parse_wpa_ciphers(override_pairwise2, &c->pair_ciphers);
++
+ 		if (auth_algs[0])
+ 		{
+ 			switch (atoi(auth_algs))

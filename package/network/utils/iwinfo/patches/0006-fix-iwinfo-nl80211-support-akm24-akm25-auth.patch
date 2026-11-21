@@ -1,23 +1,62 @@
+--- a/include/iwinfo.h
++++ b/include/iwinfo.h
+@@ -105,6 +105,7 @@ enum iwinfo_kmgmt {
+ 	IWINFO_KMGMT_PSK,
+ 	IWINFO_KMGMT_SAE,
+ 	IWINFO_KMGMT_OWE,
++	IWINFO_KMGMT_SAE_EXT_KEY,
+ 
+ 	/* keep last */
+ 	IWINFO_KMGMT_COUNT
+@@ -115,6 +116,7 @@
+ #define IWINFO_KMGMT_PSK     (1 << IWINFO_KMGMT_PSK)
+ #define IWINFO_KMGMT_SAE     (1 << IWINFO_KMGMT_SAE)
+ #define IWINFO_KMGMT_OWE     (1 << IWINFO_KMGMT_OWE)
++#define IWINFO_KMGMT_SAE_EXT_KEY (1 << IWINFO_KMGMT_SAE_EXT_KEY)
+ 
+ extern const char * const IWINFO_KMGMT_NAMES[IWINFO_KMGMT_COUNT];
+ 
+--- a/iwinfo_lib.c
++++ b/iwinfo_lib.c
+@@ -60,6 +60,7 @@ const char * const IWINFO_KMGMT_NAMES[I
+ 	"PSK",
+ 	"SAE",
+ 	"OWE",
++	"SAE-EXT",
+ };
+ 
+ const char * const IWINFO_AUTH_NAMES[IWINFO_AUTH_COUNT] = {
+--- a/iwinfo_lua.c
++++ b/iwinfo_lua.c
+@@ -104,6 +104,9 @@
+ 	if (suites & IWINFO_KMGMT_OWE)
+ 		pos += sprintf(pos, "OWE/");
+ 
++	if (suites & IWINFO_KMGMT_SAE_EXT_KEY)
++		pos += sprintf(pos, "SAE-EXT/");
++
+ 	if (!suites || (suites & IWINFO_KMGMT_NONE))
+ 		pos += sprintf(pos, "NONE/");
+ 
 --- a/iwinfo_utils.c
 +++ b/iwinfo_utils.c
-@@ -582,12 +582,14 @@ void iwinfo_parse_rsn(struct
- 					break;
- 
- 				case 8:  /* SAE */
-+				case 24: /* SAE-EXT */
+@@ -607,6 +607,13 @@ void iwinfo_parse_rsn(struct
  					c->wpa_version |= 4;
- 					c->auth_suites |= IWINFO_KMGMT_SAE;
+ 					c->auth_suites |= IWINFO_KMGMT_OWE;
  					break;
- 
- 				case 9:  /* FT/SAE */
- 				case 10: /* undefined */
-+				case 25: /* FT/SAE-EXT */
- 					break;
- 
- 				case 11: /* 802.1x Suite-B */
++
++				case 24: /* SAE-EXT-KEY */
++				case 25: /* FT/SAE-EXT-KEY */
++					c->wpa_version |= 4;
++					c->auth_suites |= IWINFO_KMGMT_SAE_EXT_KEY;
++					break;
++
+ 			}
+ 		}
+ 	}
 --- a/iwinfo_nl80211.c
 +++ b/iwinfo_nl80211.c
-@@ -1878,7 +1878,7 @@ static const struct
+@@ -1877,12 +1877,13 @@ static const struct
  	{ "EAP-SUITE-B-192", 4, IWINFO_KMGMT_8021x },
  	{ "EAP-SUITE-B",     4, IWINFO_KMGMT_8021x },
  	{ "EAP-SHA384",      4, IWINFO_KMGMT_8021x },
@@ -26,3 +65,9 @@
  	{ "PSK-SHA256",      0, IWINFO_KMGMT_PSK },
  	{ "NONE",            0, IWINFO_KMGMT_NONE },
  	{ "None",            0, IWINFO_KMGMT_NONE },
+ 	{ "PSK",             0, IWINFO_KMGMT_PSK },
+ 	{ "EAP",             0, IWINFO_KMGMT_8021x },
++	{ "SAE-EXT-KEY",     4, IWINFO_KMGMT_SAE_EXT_KEY },
+ 	{ "SAE",             4, IWINFO_KMGMT_SAE },
+ 	{ "OWE",             4, IWINFO_KMGMT_OWE }
+ };
