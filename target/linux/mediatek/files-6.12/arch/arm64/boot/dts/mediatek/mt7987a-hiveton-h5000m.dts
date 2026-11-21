@@ -214,6 +214,17 @@
 	wifi-deassert-msleep = <500>;
 	max-link-width = <2>;
 	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+
+		mt7992@0,0 {
+			reg = <0x0000 0 0 0 0>;
+
+			ieee80211-freq-limit = <2400000 2500000>,   /* 2.4G: 2400-2500 MHz */
+					       <5170000 5895000>;   /* 5G:   5170-5895 MHz */
+		};
+	};
 };
 
 &pcie1 {
