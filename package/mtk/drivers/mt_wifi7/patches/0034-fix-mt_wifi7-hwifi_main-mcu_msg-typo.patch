@@ -1,0 +1,39 @@
+--- a/mt_wifi/hw_ctrl/hwifi_main.c
++++ b/mt_wifi/hw_ctrl/hwifi_main.c
+@@ -1449,21 +1449,21 @@ hwifi_mcu_tx(struct _RTMP_ADAPTER
+ 
+ 	attr = &msg->attr;
+ 	skb = msg->net_pkt;
+-	mcu_msg.cmd = attr->type,
+-	mcu_msg.ext_cmd = attr->ext_type,
+-	mcu_msg.data = skb->data,
+-	mcu_msg.len = skb->len,
+-	mcu_msg.is_wait = IS_CMD_MSG_NEED_SYNC_WITH_FW_FLAG_SET(msg),
+-	mcu_msg.action = IS_CMD_ATTR_SET_QUERY_FLAG_SET(msg->attr) ? MAC_MCU_ACT_SET : MAC_MCU_ACT_QUERY,
+-	mcu_msg.ack = ((IS_CMD_ATTR_NEED_FW_RSP_FLAG_SET(msg->attr)) && !(IS_CMD_MSG_NA_FLAG_SET(msg))) ? TRUE : FALSE,
+-#ifdef WIFI_UNIFIED_COMMAND
+-	mcu_msg.uni_cmd = IS_CMD_MSG_UNI_CMD_FLAG_SET(msg),
+-	mcu_msg.frag_num = msg->frag_num,
+-	mcu_msg.frag_total_num = msg->total_frag,
+-#else
+-	mcu_msg.uni_cmd = 0,
+-	mcu_msg.frag_num = 0,
+-	mcu_msg.frag_total_num = 0,
++	mcu_msg.cmd = attr->type;
++	mcu_msg.ext_cmd = attr->ext_type;
++	mcu_msg.data = skb->data;
++	mcu_msg.len = skb->len;
++	mcu_msg.is_wait = IS_CMD_MSG_NEED_SYNC_WITH_FW_FLAG_SET(msg);
++	mcu_msg.action = IS_CMD_ATTR_SET_QUERY_FLAG_SET(msg->attr) ? MAC_MCU_ACT_SET : MAC_MCU_ACT_QUERY;
++	mcu_msg.ack = ((IS_CMD_ATTR_NEED_FW_RSP_FLAG_SET(msg->attr)) && !(IS_CMD_MSG_NA_FLAG_SET(msg))) ? TRUE : FALSE;
++#ifdef WIFI_UNIFIED_COMMAND
++	mcu_msg.uni_cmd = IS_CMD_MSG_UNI_CMD_FLAG_SET(msg);
++	mcu_msg.frag_num = msg->frag_num;
++	mcu_msg.frag_total_num = msg->total_frag;
++#else
++	mcu_msg.uni_cmd = 0;
++	mcu_msg.frag_num = 0;
++	mcu_msg.frag_total_num = 0;
+ #endif /* WIFI_UNIFIED_COMMAND */
+ 
+ 	/*TxPowerInfo show all rate power, the pkt length is 1262 for bellwether.*/
