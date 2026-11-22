@@ -130,7 +130,7 @@ Index: mt_wifi7/mt_wifi/common/cmm_info.c
  			goto ERROR;
  		}
  		RTMPCommSiteSurveyData(msg, pBss, TotalLen);
-+#if DOT11_EHT_BE
++#ifdef DOT11_EHT_BE
 +		LeftBufSize = TotalLen - strlen(msg);
 +		Status = snprintf(msg + strlen(msg) - 1, LeftBufSize, "%-5s", pBss->ml_capable ? (pBss->max_num_simul_link==0 ? " SL" : " ML") : " NO");
 +		if (os_snprintf_error(LeftBufSize, Status)) {
