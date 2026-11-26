@@ -1,0 +1,190 @@
+--- a/iwinfo_nl80211.c
++++ b/iwinfo_nl80211.c
+@@ -26,6 +26,7 @@
+ #include <limits.h>
+ #include <glob.h>
+ #include <fnmatch.h>
++#include <dirent.h>
+ #include <stdarg.h>
+ #include <endian.h>
+ #include <stdlib.h>
+@@ -928,13 +929,27 @@ static int nl80211_get_mode(const char *ifname, int *buf)
+ 	return ret;
+ }
+ 
++static int nl80211_hostapd_read(const char *path, const char *ifname, va_list ap)
++{
++	FILE *fp;
++	int found = 0;
++
++	if ((fp = fopen(path, "r")))
++	{
++		found = __nl80211_hostapd_block(fp, ifname, ap);
++		fclose(fp);
++	}
++
++	return found;
++}
++
+ static int __nl80211_hostapd_query(const char *ifname, ...)
+ {
+ 	struct nl80211_if_data data = {};
+ 	va_list ap, ap_cur;
+-	char *phy, *search, *dest, *key, *val, buf[128];
+-	int len, found = 0, match = 1;
+-	FILE *fp = NULL;
++	char path[PATH_MAX], *phy, *search, *dest;
++	int len, found = 0, i;
++	glob_t gl;
+ 
+ 	if (nl80211_get_if_data(ifname, &data))
+ 		return 0;
+@@ -944,22 +959,7 @@ static int __nl80211_hostapd_query(const char *ifname, ...)
+ 
+ 	phy = nl80211_ifname2phy(ifname);
+ 
+-	if (phy)
+-	{
+-		if (data.radio_idx >= 0)
+-			snprintf(buf, sizeof(buf), "/var/run/hostapd-%s.%d.conf", phy, data.radio_idx);
+-		else
+-			snprintf(buf, sizeof(buf), "/var/run/hostapd-%s.conf", phy);
+-		fp = fopen(buf, "r");
+-	}
+-
+-	if (!fp)
+-	{
+-		snprintf(buf, sizeof(buf), "/var/run/hostapd-%s.conf", ifname);
+-		fp = fopen(buf, "r");
+-	}
+-
+-	if (!fp)
++	if (!phy)
+ 		return 0;
+ 
+ 	va_start(ap, ifname);
+@@ -977,41 +977,42 @@ static int __nl80211_hostapd_query(const char *ifname, ...)
+ 
+ 	va_end(ap_cur);
+ 
+-	/* iterate applicable lines and copy found values into dest buffers */
+-	while (fgets(buf, sizeof(buf), fp))
++	/* <phy>.<radio>.conf: official hostapd.uc and MTK both use this name */
++	if (data.radio_idx >= 0)
+ 	{
+-		key = strtok(buf, " =\t\n");
+-		val = strtok(NULL, "\n");
+-
+-		if (!key || !val || !*key || *key == '#')
+-			continue;
++		snprintf(path, sizeof(path), "/var/run/hostapd-%s.%d.conf", phy, data.radio_idx);
++		found = nl80211_hostapd_read(path, ifname, ap);
++	}
+ 
+-		if (!strcmp(key, "interface") || !strcmp(key, "bss"))
+-			match = !strcmp(ifname, val);
++	/* legacy single file, and the historic per-ifname layout */
++	if (!found)
++	{
++		snprintf(path, sizeof(path), "/var/run/hostapd-%s.conf", phy);
++		found = nl80211_hostapd_read(path, ifname, ap);
++	}
+ 
+-		if (!match)
+-			continue;
++	if (!found)
++	{
++		snprintf(path, sizeof(path), "/var/run/hostapd-%s.conf", ifname);
++		found = nl80211_hostapd_read(path, ifname, ap);
++	}
+ 
+-		va_copy(ap_cur, ap);
++	/* driver does not return VIF_RADIO_MASK, so radio_idx is -1: fall back to
++	 * scanning <phy>.*.conf of the same phy.  Whether a file belongs to this
++	 * ifname is decided by its interface / bss lines, so radios never mix. */
++	if (!found)
++	{
++		snprintf(path, sizeof(path), "/var/run/hostapd-%s.*.conf", phy);
+ 
+-		while ((search = va_arg(ap_cur, char *)) != NULL)
++		if (!glob(path, 0, NULL, &gl))
+ 		{
+-			dest = va_arg(ap_cur, char *);
+-			len  = va_arg(ap_cur, int);
++			for (i = 0; i < (int)gl.gl_pathc && !found; i++)
++				found = nl80211_hostapd_read(gl.gl_pathv[i], ifname, ap);
+ 
+-			if (!strcmp(search, key))
+-			{
+-				strncpy(dest, val, len - 1);
+-				found++;
+-				break;
+-			}
++			globfree(&gl);
+ 		}
+-
+-		va_end(ap_cur);
+ 	}
+ 
+-	fclose(fp);
+-
+ 	va_end(ap);
+ 
+ 	return found;
+@@ -1307,6 +1308,44 @@ static void nl80211_ifdel(const char *ifname)
+ 	}
+ }
+ 
++static int nl80211_pidof(const char *exe)
++{
++	DIR *dir;
++	struct dirent *de;
++	char path[PATH_MAX], comm[64], *nl;
++	FILE *fp;
++	int pid = 0;
++
++	if (!(dir = opendir("/proc")))
++		return 0;
++
++	while (!pid && (de = readdir(dir)) != NULL)
++	{
++		if (de->d_name[0] < '0' || de->d_name[0] > '9')
++			continue;
++
++		snprintf(path, sizeof(path), "/proc/%s/comm", de->d_name);
++
++		if (!(fp = fopen(path, "r")))
++			continue;
++
++		if (fgets(comm, sizeof(comm), fp))
++		{
++			if ((nl = strchr(comm, '\n')) != NULL)
++				*nl = '\0';
++
++			if (!strcmp(comm, exe))
++				pid = atoi(de->d_name);
++		}
++
++		fclose(fp);
++	}
++
++	closedir(dir);
++
++	return pid;
++}
++
+ static void nl80211_hostapd_hup(const char *ifname)
+ {
+ 	int fd = -1, pid = 0;
+@@ -1342,6 +1381,11 @@ static void nl80211_hostapd_hup(const char *ifname)
+ 		close(fd);
+ 	}
+ 
++	/* MTK hostapd is spawned by procd without -P, so neither pid file above
++	 * exists; fall back to the process name (one hostapd serves all APs) */
++	if (pid <= 0)
++		pid = nl80211_pidof("hostapd");
++
+ 	if (pid > 0)
+ 		kill(pid, SIGHUP);
+ }
