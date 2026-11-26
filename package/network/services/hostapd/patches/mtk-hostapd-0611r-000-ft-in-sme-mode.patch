@@ -1,7 +1,7 @@
-Index: hostapd-2022-07-29-b704dc72/hostapd/Makefile
+Index: hostapd/hostapd/Makefile
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/hostapd/Makefile
-+++ hostapd-2022-07-29-b704dc72/hostapd/Makefile
+--- hostapd.orig/hostapd/Makefile
++++ hostapd/hostapd/Makefile
 @@ -290,7 +290,7 @@ OBJS += ../src/common/ocv.o
  endif
  
@@ -11,11 +11,11 @@ Index: hostapd-2022-07-29-b704dc72/hostapd/Makefile
  OBJS += ../src/ap/wpa_auth_ft.o
  NEED_AES_UNWRAP=y
  NEED_AES_SIV=y
-Index: hostapd-2022-07-29-b704dc72/src/ap/beacon.c
+Index: hostapd/src/ap/beacon.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/beacon.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/beacon.c
-@@ -1908,6 +1908,9 @@ static int __ieee802_11_set_beacon(struc
+--- hostapd.orig/src/ap/beacon.c
++++ hostapd/src/ap/beacon.c
+@@ -2004,6 +2004,9 @@ static int __ieee802_11_set_beacon(struc
  	struct hostapd_config *iconf = iface->conf;
  	struct hostapd_hw_modes *cmode = iface->current_mode;
  	struct wpabuf *beacon, *proberesp, *assocresp;
@@ -25,7 +25,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/beacon.c
  	int res, ret = -1;
  
  	if (!hapd->drv_priv) {
-@@ -1974,6 +1977,14 @@ static int __ieee802_11_set_beacon(struc
+@@ -2070,6 +2073,14 @@ static int __ieee802_11_set_beacon(struc
  				    &cmode->eht_capab[IEEE80211_MODE_AP]) == 0)
  		params.freq = &freq;
  
@@ -40,11 +40,11 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/beacon.c
  	res = hostapd_drv_set_ap(hapd, &params);
  	hostapd_free_ap_extra_ies(hapd, beacon, proberesp, assocresp);
  	if (res)
-Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+Index: hostapd/src/ap/ieee802_11.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/ieee802_11.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
-@@ -5141,6 +5141,7 @@ static int add_associated_sta(struct hos
+--- hostapd.orig/src/ap/ieee802_11.c
++++ hostapd/src/ap/ieee802_11.c
+@@ -5216,6 +5216,7 @@ static int add_associated_sta(struct hos
  		   wpa_auth_sta_ft_tk_already_set(sta->wpa_sm),
  		   wpa_auth_sta_fils_tk_already_set(sta->wpa_sm));
  
@@ -52,7 +52,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  	if (!sta->added_unassoc &&
  	    (!(sta->flags & WLAN_STA_AUTHORIZED) ||
  	     (reassoc && sta->ft_over_ds && sta->auth_alg == WLAN_AUTH_FT) ||
-@@ -5156,6 +5157,7 @@ static int add_associated_sta(struct hos
+@@ -5231,6 +5232,7 @@ static int add_associated_sta(struct hos
  		  * used here */
  		sta->ft_over_ds = 0;
  	}
@@ -60,11 +60,24 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  
  	if (sta->flags & WLAN_STA_HT)
  		hostapd_get_ht_capab(hapd, sta->ht_capabilities, &ht_cap);
-Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+@@ -5271,7 +5273,12 @@ static int add_associated_sta(struct hos
+ 		hostapd_logger(hapd, sta->addr,
+ 			       HOSTAPD_MODULE_IEEE80211, HOSTAPD_LEVEL_NOTICE,
+ 			       "Could not %s STA to kernel driver",
++#ifndef	HOSTAPD_11R_SUPPORT
+ 			       set ? "set" : "add");
++#else
++			       "set");
++#endif
++
+ 
+ 		if (sta->added_unassoc) {
+ 			hostapd_drv_sta_remove(hapd, sta->addr);
+Index: hostapd/src/drivers/driver.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver.h
-+++ hostapd-2022-07-29-b704dc72/src/drivers/driver.h
-@@ -1507,6 +1507,11 @@ struct wpa_driver_ap_params {
+--- hostapd.orig/src/drivers/driver.h
++++ hostapd/src/drivers/driver.h
+@@ -1508,6 +1508,11 @@ struct wpa_driver_ap_params {
  	 */
  	int pbss;
  
@@ -76,11 +89,11 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
  	/**
  	 * multicast_to_unicast - Whether to use multicast_to_unicast
  	 *
-Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
+Index: hostapd/src/drivers/driver_nl80211.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211.c
-+++ hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
-@@ -4299,6 +4299,44 @@ static int nl80211_set_mesh_config(void
+--- hostapd.orig/src/drivers/driver_nl80211.c
++++ hostapd/src/drivers/driver_nl80211.c
+@@ -4464,6 +4464,44 @@ static int nl80211_set_mesh_config(void
  }
  #endif /* CONFIG_MESH */
  
@@ -91,7 +104,7 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
 +	struct ap_11r_params* ft_params;
 +	struct nl_msg *msg = NULL;
 +	struct nlattr *attr;
-+	int ret;
++	int ret = -1;
 +
 +	wpa_printf(MSG_INFO, "nl80211_set_ft_ie");
 +
@@ -125,7 +138,7 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
  
  static int nl80211_put_beacon_rate(struct nl_msg *msg, u64 flags, u64 flags2,
  				   struct wpa_driver_ap_params *params)
-@@ -4565,6 +4603,10 @@ static int wpa_driver_nl80211_set_ap(voi
+@@ -4730,6 +4768,10 @@ static int wpa_driver_nl80211_set_ap(voi
  	struct wpa_driver_mesh_bss_params mesh_params;
  #endif /* CONFIG_MESH */
  
@@ -136,7 +149,7 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
  	beacon_set = params->reenable ? 0 : bss->beacon_set;
  
  	wpa_printf(MSG_DEBUG, "nl80211: Set beacon (beacon_set=%d)",
-@@ -8602,6 +8644,17 @@ static int wpa_driver_nl80211_probe_req_
+@@ -8957,6 +8999,17 @@ static int wpa_driver_nl80211_probe_req_
  				   NULL, 0, false) < 0)
  		goto out_err;
  

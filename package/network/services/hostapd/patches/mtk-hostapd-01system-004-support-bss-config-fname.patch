@@ -1,8 +1,8 @@
-Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
+Index: hostapd/src/ap/hostapd.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
-@@ -304,6 +304,39 @@ int hostapd_reload_config(struct hostapd
+--- hostapd.orig/src/ap/hostapd.c
++++ hostapd/src/ap/hostapd.c
+@@ -301,6 +301,39 @@ int hostapd_reload_config(struct hostapd
  	if (newconf == NULL)
  		return -1;
  
@@ -30,9 +30,9 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
 +			continue;
 +		}
 +		newconf->bss = tmp_conf;
-+		newconf->last_bss = tmp_conf[0];
 +
 +		newconf->bss[newconf->num_bss] = new_bss_conf->bss[0];
++		newconf->last_bss = newconf->bss[newconf->num_bss];
 +		newconf->num_bss++;
 +		new_bss_conf->num_bss--;
 +		new_bss_conf->bss[0] = NULL;
@@ -42,7 +42,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  	oldconf = hapd->iconf;
  	if (hostapd_iface_conf_changed(newconf, oldconf)) {
  		char *fname;
-@@ -635,7 +668,8 @@ void hostapd_cleanup_iface_partial(struc
+@@ -629,7 +662,8 @@ void hostapd_cleanup_iface_partial(struc
   */
  static void hostapd_cleanup_iface(struct hostapd_iface *iface)
  {
@@ -52,7 +52,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  	hostapd_ucode_free_iface(iface);
  	eloop_cancel_timeout(hostapd_interface_setup_failure_handler, iface,
  			     NULL);
-@@ -644,6 +678,14 @@ static void hostapd_cleanup_iface(struct
+@@ -638,6 +672,14 @@ static void hostapd_cleanup_iface(struct
  	hostapd_config_free(iface->conf);
  	iface->conf = NULL;
  
@@ -67,7 +67,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  	os_free(iface->config_fname);
  	os_free(iface->bss);
  	wpa_printf(MSG_DEBUG, "%s: free iface=%p", __func__, iface);
-@@ -2632,6 +2674,11 @@ struct hostapd_iface * hostapd_init(stru
+@@ -2626,6 +2668,11 @@ struct hostapd_iface * hostapd_init(stru
  	if (hapd_iface->bss == NULL)
  		goto fail;
  
@@ -79,16 +79,16 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  	for (i = 0; i < conf->num_bss; i++) {
  		hapd = hapd_iface->bss[i] =
  			hostapd_alloc_bss_data(hapd_iface, conf,
-@@ -2648,6 +2695,8 @@ fail:
- 		   config_file);
+@@ -2643,6 +2690,8 @@ fail:
  	if (conf)
  		hostapd_config_free(conf);
-+	if (hapd_iface->bss_config_fname)
-+		os_free(hapd_iface->bss_config_fname);
  	if (hapd_iface) {
++		if (hapd_iface->bss_config_fname)
++			os_free(hapd_iface->bss_config_fname);
  		os_free(hapd_iface->config_fname);
  		os_free(hapd_iface->bss);
-@@ -2714,6 +2763,7 @@ hostapd_interface_init_bss(struct hapd_i
+ 		wpa_printf(MSG_DEBUG, "%s: free iface %p",
+@@ -2708,6 +2757,7 @@ hostapd_interface_init_bss(struct hapd_i
  		struct hostapd_data **tmp_bss;
  		struct hostapd_bss_config *bss;
  		const char *ifname;
@@ -96,7 +96,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  
  		/* Add new BSS to existing iface */
  		conf = interfaces->config_read_cb(config_fname);
-@@ -2751,6 +2801,17 @@ hostapd_interface_init_bss(struct hapd_i
+@@ -2745,6 +2795,17 @@ hostapd_interface_init_bss(struct hapd_i
  		bss = iface->conf->bss[iface->conf->num_bss] = conf->bss[0];
  		iface->conf->num_bss++;
  
@@ -114,7 +114,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  		hapd = hostapd_alloc_bss_data(iface, iface->conf, bss);
  		if (hapd == NULL) {
  			iface->conf->num_bss--;
-@@ -3153,6 +3214,7 @@ int hostapd_add_iface(struct hapd_interf
+@@ -3147,6 +3208,7 @@ int hostapd_add_iface(struct hapd_interf
  				os_free(hapd);
  				return -1;
  			}
@@ -122,10 +122,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
  		}
  		hostapd_owe_update_trans(hapd_iface);
  		return 0;
-Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
+Index: hostapd/src/ap/wps_hostapd.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wps_hostapd.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
+--- hostapd.orig/src/ap/wps_hostapd.c
++++ hostapd/src/ap/wps_hostapd.c
 @@ -461,6 +461,7 @@ static int hapd_wps_cred_cb(struct hosta
  	int multi_bss;
  	int wpa;
@@ -134,18 +134,20 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
  
  	if (hapd->wps == NULL)
  		return 0;
-@@ -526,19 +527,28 @@ static int hapd_wps_cred_cb(struct hosta
+@@ -526,19 +527,30 @@ static int hapd_wps_cred_cb(struct hosta
  		os_memcpy(hapd->wps->network_key, cred->key, cred->key_len);
  	}
  	hapd->wps->wps_state = WPS_STATE_CONFIGURED;
-+	for (i = 0; i < hapd->iface->num_bss; i++) {
-+		if (hapd->iface && hapd->iface->bss[i] && hapd->iface->bss[i] == hapd) {
-+			conf_name = hapd->iface->bss_config_fname[i];
-+			break;
++	if (hapd->iface) {
++		for (i = 0; i < hapd->iface->num_bss; i++) {
++			if (hapd->iface->bss[i] && hapd->iface->bss[i] == hapd) {
++				conf_name = hapd->iface->bss_config_fname[i];
++				break;
++			}
 +		}
++		if (conf_name == NULL)
++			conf_name = hapd->iface->config_fname;
 +	}
-+	if (conf_name == NULL)
-+		conf_name = hapd->iface->config_fname;
  
 -	if (hapd->iface->config_fname == NULL)
 +	if (conf_name == NULL)
@@ -168,9 +170,9 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
  		os_free(tmp_fname);
  		return -1;
  	}
-@@ -610,12 +620,6 @@ static int hapd_wps_cred_cb(struct hosta
- 			fprintf(nconf, "%sSAE", prefix);
- 			sae_only = 1;
+@@ -602,12 +614,6 @@ static int hapd_wps_cred_cb(struct hosta
+ 			fprintf(nconf, "%sWPA-PSK", prefix);
+ 			prefix = " ";
  		}
 -		if (hapd->conf->wps_cred_add_sae &&
 -		    (cred->auth_type & WPS_AUTH_WPA2PSK) &&
@@ -181,7 +183,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
  		fprintf(nconf, "\n");
  
  		if (sae && hapd->conf->ieee80211w == NO_MGMT_FRAME_PROTECTION) {
-@@ -704,7 +708,7 @@ static int hapd_wps_cred_cb(struct hosta
+@@ -690,7 +696,7 @@ static int hapd_wps_cred_cb(struct hosta
  	fclose(nconf);
  	fclose(oconf);
  
@@ -190,11 +192,11 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
  		wpa_printf(MSG_WARNING, "WPS: Failed to rename the updated "
  			   "configuration file: %s", strerror(errno));
  		os_free(tmp_fname);
-Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+Index: hostapd/src/ap/hostapd.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
-@@ -674,6 +674,7 @@ struct hostapd_iface {
+--- hostapd.orig/src/ap/hostapd.h
++++ hostapd/src/ap/hostapd.h
+@@ -662,6 +662,7 @@ struct hostapd_iface {
  
  	int (*enable_iface_cb)(struct hostapd_iface *iface);
  	int (*disable_iface_cb)(struct hostapd_iface *iface);

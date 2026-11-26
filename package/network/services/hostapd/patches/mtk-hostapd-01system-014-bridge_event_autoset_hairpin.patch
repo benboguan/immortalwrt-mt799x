@@ -1,0 +1,138 @@
+Index: hostapd-2022-07-29-b704dc72/src/common/linux_bridge.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/linux_bridge.h	2025-12-31 18:56:47.902596817 +0800
++++ hostapd-2022-07-29-b704dc72/src/common/linux_bridge.h	2025-12-31 18:56:47.838594701 +0800
+@@ -36,4 +36,20 @@
+ #define BRCTL_GET_PORT_LIST 7
+ #define BRCTL_SET_BRIDGE_FORWARD_DELAY 8
+ 
++#ifndef BR_STATE_DISABLED
++#define BR_STATE_DISABLED 0
++#endif
++#ifndef BR_STATE_LISTENING
++#define BR_STATE_LISTENING 1
++#endif
++#ifndef BR_STATE_LEARNING
++#define BR_STATE_LEARNING 2
++#endif
++#ifndef BR_STATE_FORWARDING
++#define BR_STATE_FORWARDING 3
++#endif
++#ifndef BR_STATE_BLOCKING
++#define BR_STATE_BLOCKING 4
++#endif
++
+ #endif /* LINUX_BRIDGE_H */
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211.c	2025-12-31 18:56:47.902596817 +0800
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c	2025-12-31 19:02:17.457492759 +0800
+@@ -28,6 +28,7 @@
+ #include "common/ieee802_11_defs.h"
+ #include "common/ieee802_11_common.h"
+ #include "common/wpa_common.h"
++#include "common/linux_bridge.h"
+ #include "netlink.h"
+ #include "linux_defines.h"
+ #include "linux_ioctl.h"
+@@ -1249,6 +1250,8 @@
+ 	char extra[100], *pos, *end;
+ 	int init_failed;
+ 	struct hostapd_data *hapd;
++	int hairpin_mode = 0;
++	int brport_state = -1;
+ 
+ 	extra[0] = '\0';
+ 	pos = extra;
+@@ -1258,7 +1261,7 @@
+ 	attrlen = len;
+ 	attr = (struct rtattr *) buf;
+ 	while (RTA_OK(attr, attrlen)) {
+-		switch (attr->rta_type) {
++		switch (attr->rta_type & NLA_TYPE_MASK) {
+ 		case IFLA_IFNAME:
+ 			if (RTA_PAYLOAD(attr) > IFNAMSIZ)
+ 				break;
+@@ -1280,6 +1283,23 @@
+ 			pos += os_snprintf(pos, end - pos, " linkmode=%u",
+ 					   nla_get_u32((struct nlattr *) attr));
+ 			break;
++		case IFLA_PROTINFO:
++			{
++				struct rtattr *protinfo_attr = (struct rtattr *)RTA_DATA(attr);
++				int protinfo_len = RTA_PAYLOAD(attr);
++				struct rtattr *pi;
++				for (pi = protinfo_attr; RTA_OK(pi, protinfo_len); pi = RTA_NEXT(pi, protinfo_len)) {
++					if (pi->rta_type == IFLA_BRPORT_MODE) {
++						hairpin_mode = *(uint8_t *)RTA_DATA(pi);
++						pos += os_snprintf(pos, end - pos, " hairpin_mode=%d", hairpin_mode);
++					} else if (pi->rta_type == IFLA_BRPORT_STATE) {
++						brport_state = *(uint8_t *)RTA_DATA(pi);
++						pos += os_snprintf(pos, end - pos, " brport_state=%d", brport_state);
++					}
++				}
++			}
++                        break;
++
+ 		}
+ 		attr = RTA_NEXT(attr, attrlen);
+ 	}
+@@ -1417,6 +1437,12 @@
+ 		for (bss = drv->first_bss; bss; bss = bss->next) {
+ 			if (os_strcmp(ifname, bss->ifname) == 0) {
+ 				os_strlcpy(bss->brname, namebuf, IFNAMSIZ);
++				wpa_printf(MSG_DEBUG, "nl80211: %s AF_BRIDGE hairpin_mode %d, brport_state %d",
++						ifname, hairpin_mode, brport_state);
++
++				if (brport_state == BR_STATE_FORWARDING && hairpin_mode == 0)
++					wpa_supplicant_event(drv->ctx, EVENT_BR_PORT_HAIRPIN_NEEDED, NULL);
++
+ 				break;
+ 			}
+ 		}
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211.h	2025-12-31 18:56:47.902596817 +0800
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.h	2025-12-31 18:56:47.890596420 +0800
+@@ -295,6 +295,8 @@
+ const char * nl80211_iftype_str(enum nl80211_iftype mode);
+ 
+ void nl80211_restore_ap_mode(struct i802_bss *bss);
++static int wpa_driver_br_port_set_attr(void *priv, enum drv_br_port_attr attr,
++				       unsigned int val);
+ 
+ #ifdef ANDROID
+ int android_nl_socket_set_nonblocking(struct nl_sock *handle);
+Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/drv_callbacks.c	2025-12-31 18:56:47.406580420 +0800
++++ hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c	2025-12-31 19:06:35.474191722 +0800
+@@ -2080,6 +2080,12 @@
+ 		hostapd_event_dfs_cac_started(hapd, &data->dfs_event);
+ 		break;
+ #endif /* NEED_AP_MLME */
++	case EVENT_BR_PORT_HAIRPIN_NEEDED:
++		if (hapd->conf->bridge_hairpin) {
++			wpa_printf(MSG_DEBUG, "EVENT_BR_PORT_HAIRPIN_NEEDED on %s", hapd->conf->iface);
++			hostapd_drv_br_port_set_attr(hapd, DRV_BR_PORT_ATTR_HAIRPIN_MODE, 1);
++		}
++		break;
+ 	case EVENT_INTERFACE_ENABLED:
+ 		wpa_msg(hapd->msg_ctx, MSG_INFO, INTERFACE_ENABLED);
+ 		if (hapd->disabled && hapd->started) {
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver.h	2025-12-31 18:56:47.694589941 +0800
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver.h	2025-12-31 19:04:56.946871718 +0800
+@@ -5232,6 +5232,11 @@
+ 	EVENT_WDS_STA_INTERFACE_STATUS,
+ 
+ 	/**
++	 * EVENT_BR_PORT_HAIRPIN_NEEDED -  Notify hostapd that a bridge port requires Hairpin Mode to be enabled.
++	 */
++	 EVENT_BR_PORT_HAIRPIN_NEEDED,
++
++	/**
+ 	  * EVENT_UPDATE_DH - Notification of updated DH information
+ 	  */
+ 	EVENT_UPDATE_DH,

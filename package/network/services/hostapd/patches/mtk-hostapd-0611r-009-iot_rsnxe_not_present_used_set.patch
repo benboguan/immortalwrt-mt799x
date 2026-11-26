@@ -1,0 +1,17 @@
+diff --git a/src/ap/wpa_auth_ft.c b/src/ap/wpa_auth_ft.c
+--- a/src/ap/wpa_auth_ft.c
++++ b/src/ap/wpa_auth_ft.c
+@@ -4192,8 +4192,12 @@ int wpa_ft_validate_reassoc(struct wpa_state_machine *sm, const u8 *ies,
+ 		return WLAN_STATUS_INVALID_FTIE;
+ 	}
+
++	/* Allow FT+WPA2-PSK and FT+WPA2/WPA3-Enterprise to proceed for some
++	 * IOT devices that omit RSNXE in (Re)Association Request. */
+ 	if (rsnxe_used && (conf->sae_pwe == 1 || conf->sae_pwe == 2) &&
+-	    !parse.rsnxe) {
++	    !parse.rsnxe &&
++	    !(sm->wpa_key_mgmt & (WPA_KEY_MGMT_FT_PSK |
++				  WPA_KEY_MGMT_FT_IEEE8021X))) {
+ 		wpa_printf(MSG_INFO,
+ 			   "FT: FTE indicated that STA uses RSNXE, but RSNXE was not included");
+ 		return -1; /* discard request */

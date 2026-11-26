@@ -1,0 +1,42 @@
+Index: hostapd-2022.07.29~b704dc72/src/ap/hostapd.c
+===================================================================
+--- hostapd-2022.07.29~b704dc72.orig/src/ap/hostapd.c
++++ hostapd-2022.07.29~b704dc72/src/ap/hostapd.c
+@@ -1327,19 +1327,11 @@ static int hostapd_setup_bss(struct host
+ 	if (is_zero_ether_addr(conf->r1_key_holder))
+ 		os_memcpy(conf->r1_key_holder, hapd->own_addr, ETH_ALEN);
+ 	if (!conf->nas_identifier) {
+-		conf->nas_identifier = os_zalloc(20);
+-		if (conf->nas_identifier != NULL) {
+-			int ret;
+-
+-			ret = os_snprintf(conf->nas_identifier, 20, MACSTR, MAC2STR(hapd->own_addr));
+-			if ((ret < 0) || (ret >= 20)) {
+-				wpa_printf(MSG_ERROR, "%s:%d: snprintf failed or output truncated, ret:%d",
+-					__func__, __LINE__, ret);
+-				os_free(conf->nas_identifier);
+-				conf->nas_identifier = NULL;
+-				return -1;
+-			}
+-		}
++		conf->nas_identifier = os_zalloc(13);
++		if (conf->nas_identifier != NULL)
++			snprintf(conf->nas_identifier, 13, "%02X%02X%02X%02X%02X%02X",
++				hapd->own_addr[0], hapd->own_addr[1], hapd->own_addr[2],
++				hapd->own_addr[3], hapd->own_addr[4], hapd->own_addr[5]);
+ 	}
+ #endif /* CONFIG_IEEE80211R_AP */
+ 
+Index: hostapd-2022.07.29~b704dc72/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd-2022.07.29~b704dc72.orig/src/ap/wpa_auth_ft.c
++++ hostapd-2022.07.29~b704dc72/src/ap/wpa_auth_ft.c
+@@ -4785,7 +4785,7 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
+ 	}
+ 
+ 	if (r0kh && (os_memcmp(r0kh->addr, src_addr, ETH_ALEN) != 0)) {
+-		if (hexstr2bin(f_r0kh_id, r0kh_addr, f_r0kh_id_len) < 0) {
++		if (hexstr2bin(f_r0kh_id, r0kh_addr, ETH_ALEN) < 0) {
+ 			wpa_printf(MSG_DEBUG, "FT: invalid r0kh id");
+ 			goto out;
+ 		}

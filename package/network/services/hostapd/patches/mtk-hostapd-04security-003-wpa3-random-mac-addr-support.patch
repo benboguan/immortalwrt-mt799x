@@ -1,12 +1,11 @@
-diff --git a/src/drivers/driver.h b/src/drivers/driver.h
-index eb09ad7..e426129 100644
---- a/src/drivers/driver.h
-+++ b/src/drivers/driver.h
-@@ -4086,6 +4086,17 @@ struct wpa_driver_ops {
- 	 */
+Index: hostapd/src/drivers/driver.h
+===================================================================
+--- hostapd.orig/src/drivers/driver.h
++++ hostapd/src/drivers/driver.h
+@@ -4089,6 +4089,17 @@ struct wpa_driver_ops {
  	int (*radio_disable)(void *priv, int disabled);
  
-+	/**
+ 	/**
 +	 * seq_num - set seq_num
 +	 * @priv: Private driver interface data
 +	 * @random_mac: 1= set SN by driver 0=Set SN to random +delta
@@ -17,21 +16,22 @@ index eb09ad7..e426129 100644
 +	 * conditions.
 +	 */
 +	int (*seq_num)(void *priv, int seq_num);
- 	/**
++	/**
  	 * switch_channel - Announce channel switch and migrate the GO to the
  	 * given frequency
-diff --git a/src/drivers/driver_nl80211.c b/src/drivers/driver_nl80211.c
-index d86e248..c691712 100644
---- a/src/drivers/driver_nl80211.c
-+++ b/src/drivers/driver_nl80211.c
-@@ -11149,10 +11149,48 @@ static int nl80211_set_mac_addr(void *priv, const u8 *addr)
+ 	 * @priv: Private driver interface data
+Index: hostapd/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd.orig/src/drivers/driver_nl80211.c
++++ hostapd/src/drivers/driver_nl80211.c
+@@ -10978,10 +10978,48 @@ static int nl80211_set_mac_addr(void *pr
  	struct i802_bss *bss = priv;
  	struct wpa_driver_nl80211_data *drv = bss->drv;
  	int new_addr = addr != NULL;
 +#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
 +	struct nl_msg *msg = NULL;
 +	struct nlattr *attr;
-+	int ret;
++	int ret = -1;
 +#endif
  
  	if (TEST_FAIL())
@@ -73,12 +73,12 @@ index d86e248..c691712 100644
  	if (!addr)
  		addr = drv->perm_addr;
  
-@@ -11184,7 +11222,47 @@ static int nl80211_set_mac_addr(void *priv, const u8 *addr)
+@@ -11013,7 +11051,47 @@ static int nl80211_set_mac_addr(void *pr
  	}
  
  	return 0;
 +#endif
- }
++}
 +#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
 +static int nl80211_set_seq_num(void *priv, int seq_num)
 +{
@@ -86,7 +86,7 @@ index d86e248..c691712 100644
 +	struct wpa_driver_nl80211_data *drv = bss->drv;
 +	struct nl_msg *msg = NULL;
 +	struct nlattr *attr;
-+	int ret;
++	int ret = -1;
 +
 +	if (TEST_FAIL())
 +		return -1;
@@ -116,24 +116,24 @@ index d86e248..c691712 100644
 +fail:
 +	nlmsg_free(msg);
 +	return ret;
-+}
+ }
 +#endif
  
  
  #ifdef CONFIG_MESH
-@@ -13096,4 +13174,7 @@ const struct wpa_driver_ops wpa_driver_nl80211_ops = {
- #ifdef CONFIG_MTK_IEEE80211BE
+@@ -12931,4 +13009,7 @@ const struct wpa_driver_ops wpa_driver_n
  	.get_bss_mlo_info = wpa_driver_nl80211_get_bss_mlo_info,
+ 	.set_ml_reconf_kde = wpa_driver_nl80211_set_ml_reconf_kde,
  #endif
 +#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
 +	.seq_num = nl80211_set_seq_num,
 +#endif
  };
-diff --git a/wpa_supplicant/Makefile b/wpa_supplicant/Makefile
-index be8026e..3978748 100644
---- a/wpa_supplicant/Makefile
-+++ b/wpa_supplicant/Makefile
-@@ -1824,6 +1824,10 @@ OBJS += autoscan_periodic.o
+Index: hostapd/wpa_supplicant/Makefile
+===================================================================
+--- hostapd.orig/wpa_supplicant/Makefile
++++ hostapd/wpa_supplicant/Makefile
+@@ -1821,6 +1821,10 @@ OBJS += autoscan_periodic.o
  NEED_AUTOSCAN=y
  endif
  
@@ -144,11 +144,11 @@ index be8026e..3978748 100644
  ifdef NEED_AUTOSCAN
  CFLAGS += -DCONFIG_AUTOSCAN
  OBJS += autoscan.o
-diff --git a/wpa_supplicant/config.c b/wpa_supplicant/config.c
-index f9880ed..481dda3 100644
---- a/wpa_supplicant/config.c
-+++ b/wpa_supplicant/config.c
-@@ -2739,6 +2739,7 @@ static const struct parse_data ssid_fields[] = {
+Index: hostapd/wpa_supplicant/config.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/config.c
++++ hostapd/wpa_supplicant/config.c
+@@ -2739,6 +2739,7 @@ static const struct parse_data ssid_fiel
  	{ STR_RANGE(roaming_consortium_selection, 0, MAX_ROAMING_CONS_OI_LEN) },
  #endif /* CONFIG_HS20 */
  	{ INT_RANGE(mac_addr, 0, 2) },
@@ -156,7 +156,7 @@ index f9880ed..481dda3 100644
  	{ INT_RANGE(pbss, 0, 2) },
  	{ INT_RANGE(wps_disabled, 0, 1) },
  	{ INT_RANGE(fils_dh_group, 0, 65535) },
-@@ -3277,6 +3278,7 @@ void wpa_config_set_network_defaults(struct wpa_ssid *ssid)
+@@ -3277,6 +3278,7 @@ void wpa_config_set_network_defaults(str
  #endif /* CONFIG_MACSEC */
  	ssid->mac_addr = -1;
  	ssid->max_oper_chwidth = DEFAULT_MAX_OPER_CHWIDTH;
@@ -164,23 +164,29 @@ index f9880ed..481dda3 100644
  }
  
  
-@@ -3346,6 +3348,12 @@ int wpa_config_set(struct wpa_ssid *ssid, const char *var, const char *value,
+@@ -3345,6 +3347,18 @@ int wpa_config_set(struct wpa_ssid *ssid
+ 			ssid->pt = NULL;
  		}
  #endif /* CONFIG_SAE */
- 		break;
 +#ifdef CONFIG_PE
 +		if (os_strcmp(var, "mac_addr") == 0) {
-+			ssid->mac_addr = atoi(value);
++			char *endptr;
++			long val;
++
++			errno = 0;
++			val = strtol(value, &endptr, 10);
++			if (!((errno != 0) || (endptr == value) ||
++			     (val > INT_MAX) || (val < INT_MIN)))
++				ssid->mac_addr = (int)val;
 +		}
 +#endif /* CONFIG_PE */
-+		break;
+ 		break;
  	}
  	if (i == NUM_SSID_FIELDS) {
- 		if (removed_field(var)) {
-diff --git a/wpa_supplicant/config.h b/wpa_supplicant/config.h
-index 8b8be2a..408e72d 100644
---- a/wpa_supplicant/config.h
-+++ b/wpa_supplicant/config.h
+Index: hostapd/wpa_supplicant/config.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/config.h
++++ hostapd/wpa_supplicant/config.h
 @@ -37,7 +37,7 @@
  #define DEFAULT_ACCESS_NETWORK_TYPE 15
  #define DEFAULT_SCAN_CUR_FREQ 0
@@ -190,15 +196,14 @@ index 8b8be2a..408e72d 100644
  #define DEFAULT_KEY_MGMT_OFFLOAD 1
  #define DEFAULT_CERT_IN_CB 1
  #define DEFAULT_P2P_GO_CTWINDOW 0
-diff --git a/wpa_supplicant/config_ssid.h b/wpa_supplicant/config_ssid.h
-index 9a389cc..84ad015 100644
---- a/wpa_supplicant/config_ssid.h
-+++ b/wpa_supplicant/config_ssid.h
-@@ -978,6 +978,15 @@ struct wpa_ssid {
- 	 */
+Index: hostapd/wpa_supplicant/config_ssid.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/config_ssid.h
++++ hostapd/wpa_supplicant/config_ssid.h
+@@ -979,6 +979,15 @@ struct wpa_ssid {
  	int mac_addr;
  
-+	/**
+ 	/**
 +	 * seq_num - SEQ_Num  policy
 +	 *
 +	 * 0 = Current SN +Delta
@@ -207,14 +212,15 @@ index 9a389cc..84ad015 100644
 +	 */
 +	int seq_num;
 +
- 	/**
++	/**
  	 * no_auto_peer - Do not automatically peer with compatible mesh peers
  	 *
-diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
-index 0d65792..169a24b 100644
---- a/wpa_supplicant/ctrl_iface.c
-+++ b/wpa_supplicant/ctrl_iface.c
-@@ -3590,6 +3590,7 @@ static int wpa_supplicant_ctrl_iface_update_network(
+ 	 * When unset, the reception of a beacon from a another mesh peer in
+Index: hostapd/wpa_supplicant/ctrl_iface.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/ctrl_iface.c
++++ hostapd/wpa_supplicant/ctrl_iface.c
+@@ -3578,6 +3578,7 @@ static int wpa_supplicant_ctrl_iface_upd
  	char *name, char *value)
  {
  	int ret;
@@ -222,14 +228,24 @@ index 0d65792..169a24b 100644
  
  	ret = wpa_config_set(ssid, name, value, 0);
  	if (ret < 0) {
-@@ -3613,6 +3614,15 @@ static int wpa_supplicant_ctrl_iface_update_network(
+@@ -3601,6 +3602,25 @@ static int wpa_supplicant_ctrl_iface_upd
  		return 0;
  	}
  #endif /* CONFIG_BGSCAN */
 +#if defined (CONFIG_PE) && defined(SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT)
 +	if (os_strcmp(name, "seq_num") == 0) {
-+		seq_num = atoi(value);
-+		if (wpa_drv_set_seq_num(wpa_s, seq_num) < 0 ) {
++		char *endptr;
++		long val;
++
++		errno = 0;
++		val = strtol(value, &endptr, 10);
++		if ((errno != 0) || (endptr == value) ||
++		    (val > INT_MAX) || (val < INT_MIN)) {
++			wpa_printf(MSG_ERROR, "Invalid seq_num value: %s", value);
++			return -1;
++		}
++		seq_num = (int)val;
++		if (wpa_drv_set_seq_num(wpa_s, seq_num) < 0) {
 +			wpa_printf(MSG_ERROR, "set wpa_drv_set_seq_num Failed\n");
 +			return -1;
 +		}
@@ -238,11 +254,11 @@ index 0d65792..169a24b 100644
  
  	if (os_strcmp(name, "bssid") != 0 &&
  	    os_strcmp(name, "bssid_hint") != 0 &&
-diff --git a/wpa_supplicant/driver_i.h b/wpa_supplicant/driver_i.h
-index 908e5d0..d24bd47 100644
---- a/wpa_supplicant/driver_i.h
-+++ b/wpa_supplicant/driver_i.h
-@@ -628,6 +628,13 @@ static inline int wpa_drv_radio_disable(struct wpa_supplicant *wpa_s,
+Index: hostapd/wpa_supplicant/driver_i.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/driver_i.h
++++ hostapd/wpa_supplicant/driver_i.h
+@@ -628,6 +628,13 @@ static inline int wpa_drv_radio_disable(
  	return wpa_s->driver->radio_disable(wpa_s->drv_priv, disabled);
  }
  
@@ -256,11 +272,11 @@ index 908e5d0..d24bd47 100644
  static inline int wpa_drv_switch_channel(struct wpa_supplicant *wpa_s,
  					 struct csa_settings *settings)
  {
-diff --git a/wpa_supplicant/wpa_supplicant.c b/wpa_supplicant/wpa_supplicant.c
-index cc24d20..9ea1db5 100644
---- a/wpa_supplicant/wpa_supplicant.c
-+++ b/wpa_supplicant/wpa_supplicant.c
-@@ -2324,7 +2324,16 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
+Index: hostapd/wpa_supplicant/wpa_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/wpa_supplicant.c
++++ hostapd/wpa_supplicant/wpa_supplicant.c
+@@ -2313,7 +2313,16 @@ void wpa_supplicant_associate(struct wpa
  
  	if (wpa_s->last_ssid == ssid) {
  		wpa_dbg(wpa_s, MSG_DEBUG, "Re-association to the same ESS");
@@ -277,7 +293,7 @@ index cc24d20..9ea1db5 100644
  		if (wpa_s->current_bss && wpa_s->current_bss == bss) {
  			wmm_ac_save_tspecs(wpa_s);
  			wpa_s->reassoc_same_bss = 1;
-@@ -2350,6 +2359,9 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
+@@ -2339,6 +2348,9 @@ void wpa_supplicant_associate(struct wpa
  	}
  	wpa_s->last_ssid = ssid;
  
@@ -287,11 +303,11 @@ index cc24d20..9ea1db5 100644
  #ifdef CONFIG_IBSS_RSN
  	ibss_rsn_deinit(wpa_s->ibss_rsn);
  	wpa_s->ibss_rsn = NULL;
-diff --git a/wpa_supplicant/wpa_supplicant_i.h b/wpa_supplicant/wpa_supplicant_i.h
-index 433f075..b8d1773 100644
---- a/wpa_supplicant/wpa_supplicant_i.h
-+++ b/wpa_supplicant/wpa_supplicant_i.h
-@@ -1577,6 +1577,9 @@ struct wpa_supplicant {
+Index: hostapd/wpa_supplicant/wpa_supplicant_i.h
+===================================================================
+--- hostapd.orig/wpa_supplicant/wpa_supplicant_i.h
++++ hostapd/wpa_supplicant/wpa_supplicant_i.h
+@@ -1573,6 +1573,9 @@ struct wpa_supplicant {
  	unsigned int enable_dscp_policy_capa:1;
  	unsigned int connection_dscp:1;
  	unsigned int wait_for_dscp_req:1;

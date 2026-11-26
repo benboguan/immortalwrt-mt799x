@@ -1,0 +1,12 @@
+diff --git a/src/ap/beacon.c b/src/ap/beacon.c
+index cf1097d..60aba13 100644
+--- a/src/ap/beacon.c
++++ b/src/ap/beacon.c
+@@ -2091,6 +2091,7 @@ static int __ieee802_11_set_beacon(struct hostapd_data *hapd)
+ 						__func__, __LINE__, ret);
+ 			goto fail;
+ 		}
++		params.ft_params.nas_id_len = ret;
+ 	}
+ 	os_memcpy(params.ft_params.r1_key_holder, conf->r1_key_holder, ETH_ALEN);
+ 	os_memcpy(params.ft_params.own_mac, hapd->own_addr, ETH_ALEN);

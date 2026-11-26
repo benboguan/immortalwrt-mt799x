@@ -1,8 +1,8 @@
-Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+Index: hostapd/src/common/wpa_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
-+++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
-@@ -957,12 +957,30 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+--- hostapd.orig/src/common/wpa_common.c
++++ hostapd/src/common/wpa_common.c
+@@ -957,6 +957,8 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
  			link_rsne_len[ml_info.link_id] = rsnie_len;
  			link_rsnxe[ml_info.link_id] = rsnxe;
  			link_rsnxe_len[ml_info.link_id] = rsnxe_len;
@@ -11,7 +11,8 @@ Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
  
  			if (!tx_reassoc_rsp) {
  				for (i = 0; i < ml_info.prof_num; i++) {
- 					struct ieee802_11_elems elems;
+@@ -965,6 +967,22 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ #endif
  					u8 link_id = ml_info.profiles[i].link_id;
  
 +					wpa_printf(MSG_INFO, "FT: link_id = %u",
@@ -33,7 +34,7 @@ Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
  					valid_links |= BIT(link_id);
  					link_addr[link_id] = ml_info.profiles[i].addr;
  					link_rsne[link_id] = rsnie;
-@@ -1198,7 +1216,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+@@ -1202,7 +1220,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
  		res = 0;
  	}
  #endif /* CONFIG_SHA384 */
@@ -42,7 +43,7 @@ Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
  		u8 hash[SHA256_MAC_LEN];
  
  		if (hmac_sha256_vector(kck, kck_len, num_elem, addr, len, hash))
-@@ -1206,7 +1224,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+@@ -1210,7 +1228,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
  		os_memcpy(mic, hash, 16);
  		res = 0;
  	}

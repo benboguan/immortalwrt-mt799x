@@ -1,0 +1,50 @@
+Index: hostapd/src/ap/ap_config.c
+===================================================================
+--- hostapd.orig/src/ap/ap_config.c
++++ hostapd/src/ap/ap_config.c
+@@ -1295,19 +1295,6 @@ static int hostapd_config_check_bss(stru
+ 			}
+ 		}
+ 	}
+-
+-#ifdef CONFIG_IEEE80211R_AP
+-	if (full_config && wpa_key_mgmt_ft(bss->wpa_key_mgmt) &&
+-	    (bss->nas_identifier == NULL ||
+-	     os_strlen(bss->nas_identifier) < 1 ||
+-	     os_strlen(bss->nas_identifier) > FT_R0KH_ID_MAX_LEN)) {
+-		wpa_printf(MSG_ERROR, "FT (IEEE 802.11r) requires "
+-			   "nas_identifier to be configured as a 1..48 octet "
+-			   "string");
+-		return -1;
+-	}
+-#endif /* CONFIG_IEEE80211R_AP */
+-
+ 	if (full_config && conf->ieee80211n &&
+ 	    conf->hw_mode == HOSTAPD_MODE_IEEE80211B) {
+ 		bss->disable_11n = true;
+Index: hostapd/src/ap/hostapd.c
+===================================================================
+--- hostapd.orig/src/ap/hostapd.c
++++ hostapd/src/ap/hostapd.c
+@@ -1325,6 +1325,21 @@ static int hostapd_setup_bss(struct host
+ #ifdef CONFIG_IEEE80211R_AP
+ 	if (is_zero_ether_addr(conf->r1_key_holder))
+ 		os_memcpy(conf->r1_key_holder, hapd->own_addr, ETH_ALEN);
++	if (!conf->nas_identifier) {
++		conf->nas_identifier = os_zalloc(20);
++		if (conf->nas_identifier != NULL) {
++			int ret;
++
++			ret = os_snprintf(conf->nas_identifier, 20, MACSTR, MAC2STR(hapd->own_addr));
++			if ((ret < 0) || (ret >= 20)) {
++				wpa_printf(MSG_ERROR, "%s:%d: snprintf failed or output truncated, ret:%d",
++					__func__, __LINE__, ret);
++				os_free(conf->nas_identifier);
++				conf->nas_identifier = NULL;
++				return -1;
++			}
++		}
++	}
+ #endif /* CONFIG_IEEE80211R_AP */
+ 
+ #ifdef CONFIG_MESH

@@ -1,7 +1,7 @@
-diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
-index 7545548..fbd0a04 100644
---- a/src/ap/ap_config.h
-+++ b/src/ap/ap_config.h
+Index: hostapd/src/ap/ap_config.h
+===================================================================
+--- hostapd.orig/src/ap/ap_config.h
++++ hostapd/src/ap/ap_config.h
 @@ -19,6 +19,7 @@
  #include "wps/wps.h"
  #include "fst/fst.h"
@@ -10,7 +10,7 @@ index 7545548..fbd0a04 100644
  
  enum macaddr_acl {
  	ACCEPT_UNLESS_DENIED = 0,
-@@ -961,6 +962,7 @@ struct hostapd_bss_config {
+@@ -941,6 +942,7 @@ struct hostapd_bss_config {
  #ifdef CONFIG_IEEE80211AX
  	u8 dot11vmbssid;
  #endif /* CONFIG_IEEE80211AX */
@@ -18,23 +18,24 @@ index 7545548..fbd0a04 100644
  };
  
  /**
-diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
-index 34ff7bf..1e9a0f8 100644
---- a/src/ap/ctrl_iface_ap.c
-+++ b/src/ap/ctrl_iface_ap.c
-@@ -1155,6 +1155,7 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
+Index: hostapd/src/ap/ctrl_iface_ap.c
+===================================================================
+--- hostapd.orig/src/ap/ctrl_iface_ap.c
++++ hostapd/src/ap/ctrl_iface_ap.c
+@@ -1155,6 +1155,9 @@ int hostapd_ctrl_iface_bss_tm_req(struct
  	int nei_len;
  	u8 mbo[10];
  	size_t mbo_len = 0;
 +	int i = 0;
++
++	os_memset(nei_rep, 0, sizeof(nei_rep));
  
  	if (hwaddr_aton(cmd, addr)) {
  		wpa_printf(MSG_DEBUG, "Invalid STA MAC address");
-@@ -1162,6 +1163,20 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
- 	}
+@@ -1163,6 +1166,20 @@ int hostapd_ctrl_iface_bss_tm_req(struct
  
  	sta = ap_get_sta(hapd, addr);
-+	if (sta == NULL) {
+ 	if (sta == NULL) {
 +		for (i = 0; i < 3; i++) {
 +			struct hostapd_iface *iface = hapd->iface;
 +			if (iface) {
@@ -48,10 +49,11 @@ index 34ff7bf..1e9a0f8 100644
 +			}
 +		}
 +	}
- 	if (sta == NULL) {
++	if (sta == NULL) {
  		wpa_printf(MSG_DEBUG, "Station " MACSTR
  			   " not found for BSS TM Request message",
-@@ -1215,6 +1230,8 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
+ 			   MAC2STR(addr));
+@@ -1215,6 +1232,8 @@ int hostapd_ctrl_iface_bss_tm_req(struct
  
  	nei_len = ieee802_11_parse_candidate_list(cmd, nei_rep,
  						  sizeof(nei_rep));
@@ -60,11 +62,11 @@ index 34ff7bf..1e9a0f8 100644
  	if (nei_len < 0)
  		return -1;
  
-diff --git a/src/ap/neighbor_db.c b/src/ap/neighbor_db.c
-index c73dd6b..4ac14dd 100644
---- a/src/ap/neighbor_db.c
-+++ b/src/ap/neighbor_db.c
-@@ -400,6 +400,128 @@ int hostapd_neighbor_check_other_mac_presence(char *nei_buf, size_t buflen, u8 *
+Index: hostapd/src/ap/neighbor_db.c
+===================================================================
+--- hostapd.orig/src/ap/neighbor_db.c
++++ hostapd/src/ap/neighbor_db.c
+@@ -407,6 +407,130 @@ int hostapd_neighbor_check_other_mac_pre
  	return own_mac;
  }
  
@@ -73,12 +75,12 @@ index c73dd6b..4ac14dd 100644
 +{
 +	int len = 0, shift_len = 0, temp_len = 0, sta_pro_len = 0, i = 0, j = 0, ap_nei = 0;
 +	u8 *pos = nei_rep;
-+	u8 *start_pro, *next_nei_rep;
-+	size_t ml_link_num = hapd->ml_group->ml_link_num;
++	int ml_link_num;
 +	struct wpa_ml_ie_parse ml = hapd->conf->ml_ie_btm;
 +
 +	if (!hapd)
 +		return nei_len;
++
 +	ml_link_num = (int)(nei_len / 29);   //gives total neighbours present in nei_rep
 +	if (ml_link_num <= 1)
 +		return nei_len;
@@ -97,8 +99,6 @@ index c73dd6b..4ac14dd 100644
 +				}
 +				if ((os_memcmp(&nei_rep[len + 2], ml.profiles[i].addr, ETH_ALEN) == 0) ||
 +					(os_memcmp(&nei_rep[len + 2], h_hapd->own_addr, ETH_ALEN) == 0)) {
-+					if (shift_len == temp_len)  //if link_id not present, no need to add per_sta profile
-+						return nei_len;
 +					ap_nei++;
 +					len += temp_len + 1;
 +					j++;
@@ -137,6 +137,8 @@ index c73dd6b..4ac14dd 100644
 +					(os_memcmp(&nei_rep[len + 2], h_hapd->own_addr, ETH_ALEN) == 0)){
 +					u16 sta_ctrl = 0;
 +					int other_id1 = 0, other_id2 = 0, ap_nei_tmp = ap_nei;
++					u8 *start_pro = NULL, *next_nei_rep = NULL;
++
 +					pos = pos + temp_len + 1;
 +					start_pro = pos;
 +					if (j < ml_link_num - ap_nei_tmp) {        //nei_rep of all the neighbours that are not Ap's
@@ -169,6 +171,8 @@ index c73dd6b..4ac14dd 100644
 +					}
 +					if (j < ml_link_num - ap_nei_tmp)
 +						memcpy (pos, next_nei_rep, temp_len * (ml_link_num - (j + ap_nei_tmp)));
++					if (next_nei_rep)
++						os_free(next_nei_rep);
 +					return ((nei_len + pos - start_pro) - ((ap_nei_tmp - 1) * (temp_len + 1)));
 +				} else {
 +					i++;
@@ -193,23 +197,23 @@ index c73dd6b..4ac14dd 100644
  void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_buf,
  		size_t buflen, const int pref)
  {
-diff --git a/src/ap/neighbor_db.h b/src/ap/neighbor_db.h
-index 1f8bd6a..8f69c37 100644
---- a/src/ap/neighbor_db.h
-+++ b/src/ap/neighbor_db.h
-@@ -27,6 +27,7 @@ void hostapd_free_neighbor_db(struct hostapd_data *hapd);
+Index: hostapd/src/ap/neighbor_db.h
+===================================================================
+--- hostapd.orig/src/ap/neighbor_db.h
++++ hostapd/src/ap/neighbor_db.h
+@@ -27,6 +27,7 @@ void hostapd_free_neighbor_db(struct hos
  int hostapd_neighbor_count(struct hostapd_data *hapd);
  int hostapd_neighbor_insert_buffer(struct hostapd_data *hapd, char *buf,
          size_t buflen);
 +int add_stapro_neighbor_rep(struct hostapd_data *hapd, u8 *nei_rep, size_t nei_len);
  void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_buf,
  		                size_t buflen, const int pref);
- #ifdef CONFIG_MBO
-diff --git a/src/ap/wpa_auth_ft.c b/src/ap/wpa_auth_ft.c
-index a8dea61..f9cbbca 100644
---- a/src/ap/wpa_auth_ft.c
-+++ b/src/ap/wpa_auth_ft.c
-@@ -3694,7 +3694,7 @@ static int wpa_ft_process_auth_req(struct wpa_state_machine *sm,
+ #endif /* NEIGHBOR_DB_H */
+Index: hostapd/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_ft.c
++++ hostapd/src/ap/wpa_auth_ft.c
+@@ -3706,7 +3706,7 @@ static int wpa_ft_process_auth_req(struc
  		const u8 *ml_ie = parse.mlie;
  		size_t ml_ie_len = parse.mlie_len;
  
@@ -218,11 +222,11 @@ index a8dea61..f9cbbca 100644
  			sm->sta_ml_ie = NULL;
  			sm->dot11MultiLinkActivated = 0;
  			wpa_printf(MSG_DEBUG, "FT: Invalid MLIE");
-diff --git a/src/common/wpa_common.c b/src/common/wpa_common.c
-index 5c0f6f0..a86932b 100644
---- a/src/common/wpa_common.c
-+++ b/src/common/wpa_common.c
-@@ -950,7 +950,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *kck, size_t kck_len, const u8 *sta_addr,
+Index: hostapd/src/common/wpa_common.c
+===================================================================
+--- hostapd.orig/src/common/wpa_common.c
++++ hostapd/src/common/wpa_common.c
+@@ -950,7 +950,7 @@ int wpa_ft_mic(int key_mgmt, int peer_ke
  
  #ifdef CONFIG_MTK_IEEE80211BE
  	if (mlie) {
@@ -231,7 +235,7 @@ index 5c0f6f0..a86932b 100644
  			valid_links |= BIT(ml_info.link_id);
  			link_addr[ml_info.link_id] = main_link_addr;
  			link_rsne[ml_info.link_id] = rsnie;
-@@ -1518,7 +1518,7 @@ int wpa_ft_parse_ies(const u8 *ies, size_t ies_len,
+@@ -1539,7 +1539,7 @@ int wpa_ft_parse_ies(const u8 *ies, size
  				wpa_hexdump(MSG_DEBUG, "FT: ML IE", pos + 1, (unsigned int) len - 1);
  
  				if (ml_parse_ie(parse->mlie, parse->mlie_len,
@@ -240,11 +244,11 @@ index 5c0f6f0..a86932b 100644
  					link_num = ml.prof_num + 1;
  					wpa_printf(MSG_INFO, "FT: ML total link num %d", link_num);
  				}
-diff --git a/src/drivers/mediatek_driver_cmd_nl80211.c b/src/drivers/mediatek_driver_cmd_nl80211.c
-index 9ce28c1..2ad5d2e 100644
---- a/src/drivers/mediatek_driver_cmd_nl80211.c
-+++ b/src/drivers/mediatek_driver_cmd_nl80211.c
-@@ -426,7 +426,7 @@ void mtk_nl80211_rxt2lm_stop_disassoc_timer_event(struct wpa_driver_nl80211_data
+Index: hostapd/src/drivers/mediatek_driver_cmd_nl80211.c
+===================================================================
+--- hostapd.orig/src/drivers/mediatek_driver_cmd_nl80211.c
++++ hostapd/src/drivers/mediatek_driver_cmd_nl80211.c
+@@ -383,7 +383,7 @@ void mtk_nl80211_rxt2lm_stop_disassoc_ti
  				prev = sta;
  				if (sta->flags & WLAN_STA_ASSOC) {
  					wpa_printf(MSG_DEBUG,"cancelling timer for STA" MACSTR, MAC2STR(sta->addr));
@@ -253,11 +257,11 @@ index 9ce28c1..2ad5d2e 100644
  				}
  				sta = sta->next;
  			}
-diff --git a/src/ml/ml_common.c b/src/ml/ml_common.c
-index d382129..a3957b6 100644
---- a/src/ml/ml_common.c
-+++ b/src/ml/ml_common.c
-@@ -190,7 +190,7 @@ u8* ml_set_ml_rsno_link_kde(u8 *pos, u8 link_id,
+Index: hostapd/src/ml/ml_common.c
+===================================================================
+--- hostapd.orig/src/ml/ml_common.c
++++ hostapd/src/ml/ml_common.c
+@@ -190,7 +190,7 @@ u8* ml_set_ml_rsno_link_kde(u8 *pos, u8
  	return pos;
  }
  
@@ -266,7 +270,7 @@ index d382129..a3957b6 100644
  {
  	const u8 *pos, *end, *ci_end, *info_end;;
  	u16 ml_ctrl;
-@@ -306,6 +306,14 @@ int ml_parse_ie(const u8 *ie, size_t len, struct wpa_ml_ie_parse *ml, u8 *bssid)
+@@ -306,6 +306,14 @@ int ml_parse_ie(const u8 *ie, size_t len
  		wpa_printf(MSG_INFO, "ML:common Info MLD id = %u", ml->mld_id);
  		pos += 1;
  	}
@@ -280,8 +284,8 @@ index d382129..a3957b6 100644
 +	}
  
  	if (pos - (ie + 2) != ml->common_info_len) {
- 		ml->valid = false;
-@@ -377,6 +385,23 @@ int ml_parse_ie(const u8 *ie, size_t len, struct wpa_ml_ie_parse *ml, u8 *bssid)
+ 		/*common info len not equal than parsed len, by pass the all common info len.*/
+@@ -376,6 +384,27 @@ int ml_parse_ie(const u8 *ie, size_t len
  			profile->mac_addr_present = 1;
  			wpa_printf(MSG_INFO, "ML: LinkID=%u, LinkAddr="MACSTR"",
  				profile->link_id, MAC2STR(profile->addr));
@@ -297,15 +301,19 @@ index d382129..a3957b6 100644
 +					sta = ap_sta_add(h_hapd, profile->addr);
 +					if (sta) {
 +						sta->flags |= WLAN_STA_AUTH | WLAN_STA_ASSOC;
-+						os_memset(hapd->profiles[ml->prof_num].addr, 0, ETH_ALEN);
-+						os_memcpy(hapd->profiles[ml->prof_num].addr, profile->addr, ETH_ALEN);
++						if (ml->prof_num >= ML_MAX_LINK_NUM) {
++							wpa_printf(MSG_ERROR, "ML: invalid prof_num %u", ml->prof_num);
++						} else {
++							os_memset(hapd->profiles[ml->prof_num].addr, 0, ETH_ALEN);
++							os_memcpy(hapd->profiles[ml->prof_num].addr, profile->addr, ETH_ALEN);
++						}
 +					}
 +				}
 +			}
  			pos += ETH_ALEN;
  		}
  		if (sta_ctrl & ML_STA_CTRL_BCN_INTV_PRESENT) {
-@@ -473,7 +498,7 @@ int ml_parse_ie(const u8 *ie, size_t len, struct wpa_ml_ie_parse *ml, u8 *bssid)
+@@ -472,7 +501,7 @@ int ml_parse_ie(const u8 *ie, size_t len
  		 */
  		while (frag_flag && (pos + 1) < end) {
  			u8 frag_len = 0;
@@ -314,7 +322,7 @@ index d382129..a3957b6 100644
  			if (*pos != 254) {
  				wpa_printf(MSG_INFO,
  					"ML: invalid sta profile FragID(254) %u", *pos);
-@@ -534,7 +559,7 @@ int ml_sae_process_auth(struct sae_data *sae, u16 auth_transaction,
+@@ -533,7 +562,7 @@ int ml_sae_process_auth(struct sae_data
  			sae->peer_ml_ie = NULL;
  			sae->dot11MultiLinkActivated = 0;
  		} else {
@@ -323,7 +331,7 @@ index d382129..a3957b6 100644
  				sae->peer_ml_ie = NULL;
  				sae->dot11MultiLinkActivated = 0;
  				if (frag_ml_ie)
-@@ -566,7 +591,7 @@ int ml_sae_process_auth(struct sae_data *sae, u16 auth_transaction,
+@@ -565,7 +594,7 @@ int ml_sae_process_auth(struct sae_data
  		}
  
  		if (ml_ie) {
@@ -332,7 +340,7 @@ index d382129..a3957b6 100644
  				wpa_printf(MSG_ERROR, "ML: SAE confirm failed to parse ml ie");
  				if (frag_ml_ie)
  					wpabuf_free(frag_ml_ie);
-@@ -892,6 +917,10 @@ int ml_new_assoc_sta(struct wpa_state_machine *sm, const u8 *ie, size_t len)
+@@ -884,6 +913,10 @@ int ml_new_assoc_sta(struct wpa_state_ma
  {
  	if (!sm)
  		return -1;
@@ -343,7 +351,7 @@ index d382129..a3957b6 100644
  	wpa_printf(MSG_INFO, "ML: new STA:");
  	os_free(sm->sta_ml_ie);
  	if (ie == NULL || len == 0 || STATE_MACHINE_ML_GROUP == NULL) {
-@@ -901,7 +930,7 @@ int ml_new_assoc_sta(struct wpa_state_machine *sm, const u8 *ie, size_t len)
+@@ -893,7 +926,7 @@ int ml_new_assoc_sta(struct wpa_state_ma
  		struct wpa_ml_ie_parse ml;
  		struct wpa_ml_group *ml_group = STATE_MACHINE_ML_GROUP;
  
@@ -352,10 +360,10 @@ index d382129..a3957b6 100644
  			sm->sta_ml_ie = NULL;
  			sm->dot11MultiLinkActivated = 0;
  			return -1;
-diff --git a/src/ml/ml_common.h b/src/ml/ml_common.h
-index 04b434d..e905945 100644
---- a/src/ml/ml_common.h
-+++ b/src/ml/ml_common.h
+Index: hostapd/src/ml/ml_common.h
+===================================================================
+--- hostapd.orig/src/ml/ml_common.h
++++ hostapd/src/ml/ml_common.h
 @@ -81,6 +81,7 @@ struct sae_data;
  #define ML_CTRL_EML_CAPA_PRESENT			BIT(7)
  #define ML_CTRL_MLD_CAPA_PRESENT			BIT(8)
@@ -364,7 +372,7 @@ index 04b434d..e905945 100644
  
  #define ML_SUB_ID_PER_STA_PROFILE			0
  #define ML_STA_CTRL_LINK_ID_MASK			BITS(0, 3)
-@@ -194,7 +195,7 @@ const u8 * ml_auth_aa(struct wpa_state_machine *sm, const u8 *bssid);
+@@ -204,7 +205,7 @@ const u8 * ml_auth_aa(struct wpa_state_m
  u8* ml_set_mac_kde(u8 *buf, const unsigned char *addr);
  u8* ml_set_ml_link_kde(u8 *pos, u8 id, const unsigned char *addr,
  	const u8 *rsne, size_t rsne_len, const u8 *rsnxe, size_t rsnxe_len);
@@ -373,11 +381,11 @@ index 04b434d..e905945 100644
  
  #ifdef CONFIG_SAE
  int ml_sae_process_auth(struct sae_data *sae, u16 auth_transaction,
-diff --git a/src/ml/ml_supplicant.c b/src/ml/ml_supplicant.c
-index 207ca2e..db837ca 100644
---- a/src/ml/ml_supplicant.c
-+++ b/src/ml/ml_supplicant.c
-@@ -250,7 +250,7 @@ int ml_set_sae_auth_commit_req_ml_ie (struct sae_data *sae, const u8 *ies, size_
+Index: hostapd/src/ml/ml_supplicant.c
+===================================================================
+--- hostapd.orig/src/ml/ml_supplicant.c
++++ hostapd/src/ml/ml_supplicant.c
+@@ -250,7 +250,7 @@ int ml_set_sae_auth_commit_req_ml_ie (st
  		wpa_printf(MSG_DEBUG, "ML: clearing STA ML IE");
  		sae->dot11MultiLinkActivated = 0;
  	} else {
@@ -386,7 +394,7 @@ index 207ca2e..db837ca 100644
  			sae->dot11MultiLinkActivated = 0;
  			if (frag_ml_ie)
  				wpabuf_free(frag_ml_ie);
-@@ -307,7 +307,7 @@ int ml_set_assoc_req_ml_ie(struct wpa_sm *sm, const u8 *ies, size_t ies_len)
+@@ -307,7 +307,7 @@ int ml_set_assoc_req_ml_ie(struct wpa_sm
  		wpa_printf(MSG_DEBUG, "ML:[%s] clearing STA ML IE", __func__);
  		goto err;
  	} else {
@@ -395,7 +403,7 @@ index 207ca2e..db837ca 100644
  		    ml.prof_num > ML_MAX_LINK_NUM) {
  			wpa_printf(MSG_DEBUG, "ML:[%s] ml_parse_ie fails", __func__);
  			goto err;
-@@ -376,7 +376,7 @@ int ml_set_assoc_resp_ml_ie(struct wpa_sm *sm, const u8 *ies, size_t ies_len, u8
+@@ -376,7 +376,7 @@ int ml_set_assoc_resp_ml_ie(struct wpa_s
  	} else {
  		WPA_ASSERT(sm->dot11MultiLinkActivated);
  
@@ -404,11 +412,11 @@ index 207ca2e..db837ca 100644
  		    ml.prof_num > ML_MAX_LINK_NUM) {
  			wpa_printf(MSG_DEBUG, "ML:[%s] ml_parse_ie fails", __func__);
  			goto err;
-diff --git a/wpa_supplicant/bss.c b/wpa_supplicant/bss.c
-index 44fd0a3..053ba50 100644
---- a/wpa_supplicant/bss.c
-+++ b/wpa_supplicant/bss.c
-@@ -851,7 +851,7 @@ void wpa_bss_update_scan_res(struct wpa_supplicant *wpa_s,
+Index: hostapd/wpa_supplicant/bss.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/bss.c
++++ hostapd/wpa_supplicant/bss.c
+@@ -851,7 +851,7 @@ void wpa_bss_update_scan_res(struct wpa_
  		if (ml_ie) {
  			struct wpa_ml_ie_parse ml;
  
@@ -417,11 +425,11 @@ index 44fd0a3..053ba50 100644
  				os_memcpy(bss->aa, ml.ml_addr, ETH_ALEN);
  				wpa_printf(MSG_DEBUG,
  					"ML: BSS[" MACSTR "] set AA[" MACSTR "]",
-diff --git a/wpa_supplicant/sme.c b/wpa_supplicant/sme.c
-index d684127..51d92cb 100644
---- a/wpa_supplicant/sme.c
-+++ b/wpa_supplicant/sme.c
-@@ -227,7 +227,7 @@ static struct wpabuf * sme_auth_build_sae_commit(struct wpa_supplicant *wpa_s,
+Index: hostapd/wpa_supplicant/sme.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/sme.c
++++ hostapd/wpa_supplicant/sme.c
+@@ -222,7 +222,7 @@ static struct wpabuf * sme_auth_build_sa
  			wpa_printf(MSG_DEBUG, "ML: clearing STA ML IE");
  			bss->dot11MultiLinkActivated = 0;
  		} else {

@@ -1,0 +1,67 @@
+From: mtk23510 <mtk23510@mediatek.com>
+Date: Thu, 25 Jun 2026 00:00:00 +0800
+Subject: [PATCH] hostapd: FT MIC: revert unconditional need_ml_rsn=1 in MLE
+ branch
+
+mtk-hostapd-0611r-010-roaming_ft_mic_fix.patch made three changes:
+  A) RX branch: force need_ml_rsn=1 instead of gating on
+     ml_info.bss_para_change_cnt_present.
+  B) TX branch: force need_ml_rsn=1 instead of gating on
+     ml_group->ml_link_num > 1.
+  C) RSNXE append loop: skip per-link RSNXE when caller passed rsnxe=NULL
+     (i.e. when STA did not include RSNXE on air).
+
+C is the change that actually fixed the previous MLO FT-802.1X regression
+where the AP injected zeroed per-link RSNXE bytes into the Reassoc Resp
+FTE MIC -> STA MIC validation failed -> STA emitted PMF Deauth.
+
+A and B were over-corrections. With A in effect, every Reassoc Req that
+carries a Basic ML element now triggers the per-link RSNE MIC recipe on
+RX, even for STAs whose MLE does not signal bss_para_change_cnt and that
+do not include per-link RSNE bytes in their own MIC input. The result is
+hostapd printing "FT: Invalid MIC in FTIE" and answering every Reassoc
+Req with status 55 (INVALID_FTIE), in a tight loop.
+
+This patch:
+  - Reverts A back to the original gate on ml_info.bss_para_change_cnt_present.
+  - Reverts B back to the original gate on ml_group->ml_link_num > 1.
+  - Keeps C (need_ml_rsn && rsnxe) intact so the previous PMF-Deauth
+    regression does not return.
+
+Signed-off-by: mtk23510 <mtk23510@mediatek.com>
+---
+ src/common/wpa_common.c | 12 ++++--------
+ 1 file changed, 4 insertions(+), 8 deletions(-)
+
+--- a/src/common/wpa_common.c
++++ b/src/common/wpa_common.c
+@@ -1023,11 +1023,9 @@
+ #endif
+ 				}
+
+-				/* MLE present in this Reassoc Req -> use per-link
+-				 * RSNE path on RX. Must match TX so STA's MIC
+-				 * validates.
+-				 */
+-				need_ml_rsn = 1;
++				/* fourth message, no need to add legacy rsn */
++				if (ml_info.bss_para_change_cnt_present)
++					need_ml_rsn = 1;
+
+ 				wpa_printf(MSG_INFO, "FT: MLO valid links=%x, need_ml_rsn=%u",
+ 					valid_links, need_ml_rsn);
+@@ -1065,11 +1063,9 @@
+ 					}
+ 				}
+
+-				/* MLE will be present in this Reassoc Resp -> use
+-				 * per-link RSNE path on TX. Must match RX so the
+-				 * STA's MIC validates.
+-				 */
+-				need_ml_rsn = 1;
++				/* MLO: per-link RSNE recipe only when truly multi-link */
++				if (ml_group->ml_link_num > 1)
++					need_ml_rsn = 1;
+
+ 				if (need_ml_rsn) {
+ 					for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {

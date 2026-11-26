@@ -3,6 +3,7 @@
 #include "utils/eloop.h"
 #include "crypto/crypto.h"
 #include "crypto/sha1.h"
+#include "crypto/sha256.h"
 #include "common/ieee802_11_common.h"
 #include <linux/netlink.h>
 #include <linux/genetlink.h>
@@ -143,6 +144,10 @@ uc_value_t *uc_wpa_freq_info(uc_vm_t *vm, size_t nargs)
 		break;
 	case 2:
 		chanwidth = CONF_OPER_CHWIDTH_160MHZ;
+		break;
+	case 9:
+		width = 3;
+		chanwidth = CONF_OPER_CHWIDTH_320MHZ;
 		break;
 	default:
 		return NULL;

@@ -1,0 +1,58 @@
+From: mtk23510 <mtk23510@mediatek.com>
+Date: Thu, 19 Jun 2026 00:00:00 +0800
+Subject: [PATCH] hostapd: FT MIC: fix MLO Reassoc Resp MIC for FT-802.1X roam
+
+AP injected per-link RSNXE bytes (from auth->wpa_ie template) into the
+Reassoc Resp FTE MIC even though the air capture shows no RSNXE in the
+Resp (rsnxe_used=0, FT-802.1X) -> STA FTE-MIC validation fails -> STA
+emits PMF Deauth. Gate per-link RSNXE on caller rsnxe!=NULL and align
+need_ml_rsn on RX/TX so both branches pick the same MIC recipe whenever
+a Basic ML element is present.
+
+Non-MLO FT path unaffected (mlie==NULL -> need_ml_rsn stays 0).
+
+Signed-off-by: mtk23510 <mtk23510@mediatek.com>
+---
+ src/common/wpa_common.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+--- a/src/common/wpa_common.c
++++ b/src/common/wpa_common.c
+@@ -1023,9 +1023,11 @@
+ #endif
+ 				}
+ 
+-				/* fourth message, no need to add legacy rsn */
+-				if (ml_info.bss_para_change_cnt_present)
+-					need_ml_rsn = 1;
++				/* MLE present in this Reassoc Req -> use per-link
++				 * RSNE path on RX. Must match TX so STA's MIC
++				 * validates.
++				 */
++				need_ml_rsn = 1;
+ 
+ 				wpa_printf(MSG_INFO, "FT: MLO valid links=%x, need_ml_rsn=%u",
+ 					valid_links, need_ml_rsn);
+@@ -1063,8 +1065,11 @@
+ 					}
+ 				}
+ 
+-				if (ml_group->ml_link_num > 1)
+-					need_ml_rsn = 1;
++				/* MLE will be present in this Reassoc Resp -> use
++				 * per-link RSNE path on TX. Must match RX so the
++				 * STA's MIC validates.
++				 */
++				need_ml_rsn = 1;
+ 
+ 				if (need_ml_rsn) {
+ 					for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
+@@ -1186,7 +1191,7 @@
+ 	}
+ 
+ #ifdef CONFIG_MTK_IEEE80211BE
+-	if (need_ml_rsn) {
++	if (need_ml_rsn && rsnxe) {
+ 		for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
+ 			if (valid_links & BIT(i)) {
+ 				addr[num_elem] = link_rsnxe[i];

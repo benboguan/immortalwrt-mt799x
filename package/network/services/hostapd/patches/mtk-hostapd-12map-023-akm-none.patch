@@ -1,0 +1,17 @@
+diff --git a/hostapd/config_file.c b/hostapd/config_file.c
+index 22a8b7a..aa82ec6 100644
+--- a/hostapd/config_file.c
++++ b/hostapd/config_file.c
+@@ -717,7 +717,11 @@ static int hostapd_config_parse_key_mgmt(int line, const char *value)
+ 		else if (os_strcmp(start, "PASN") == 0)
+ 			val |= WPA_KEY_MGMT_PASN;
+ #endif /* CONFIG_PASN */
+-		else {
++		else if (os_strcmp(start, "NONE") == 0) {
++			os_free(buf);
++                        return 0;
++
++		} else {
+ 			wpa_printf(MSG_ERROR, "Line %d: invalid key_mgmt '%s'",
+ 				   line, start);
+ 			os_free(buf);

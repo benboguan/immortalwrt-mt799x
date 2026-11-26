@@ -1,0 +1,13 @@
+Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
++++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+@@ -4388,7 +4388,7 @@ int is_ft_akm(const unsigned char *akm)
+ 
+ int is_non_ft_akm(const unsigned char *akm)
+ {
+-	unsigned char non_ft_akm_types[4] = {1, 2, 8, 24};
++	unsigned char non_ft_akm_types[5] = {1, 2, 5, 8, 24};
+ 	unsigned char rsn_oui[3] = {0x00, 0x0f, 0xac};
+ 	unsigned char non_ft_akm_cnt = 4, i = 0;
+ 

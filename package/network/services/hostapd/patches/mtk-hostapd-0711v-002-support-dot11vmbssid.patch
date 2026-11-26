@@ -83,7 +83,7 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/nl80211_copy.h
 --- hostapd-2022-07-29-b704dc72.orig/src/drivers/nl80211_copy.h
 +++ hostapd-2022-07-29-b704dc72/src/drivers/nl80211_copy.h
 @@ -3176,6 +3176,7 @@ enum nl80211_attrs {
- 	NL80211_ATTR_EHT_CAPABILITY,
+ 	NL80211_ATTR_VIF_RADIO_MASK,
  
  	/* add attributes here, update the policy in nl80211.c */
 +	NL80211_ATTR_DOT11VMBSSID = NL80211_ATTR_MBSSID_ELEMS + 120,

@@ -1,0 +1,180 @@
+Index: hostapd/src/ap/wpa_auth.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
+@@ -162,7 +162,12 @@ static inline void wpa_auth_psk_failure_
+ 	if (wpa_auth->cb->psk_failure_report)
+ 		wpa_auth->cb->psk_failure_report(wpa_auth->cb_ctx, addr);
+ }
+-
++static inline void wpa_auth_eapol_failure_report(
++	struct wpa_authenticator *wpa_auth, struct wpabuf *eapol_buf, const u8 *addr, int frame)
++{
++	if (wpa_auth->cb->eapol_failure_report)
++		wpa_auth->cb->eapol_failure_report(wpa_auth->cb_ctx, eapol_buf, addr, frame);
++}
+ 
+ static inline void wpa_auth_set_eapol(struct wpa_authenticator *wpa_auth,
+ 				      const u8 *addr, wpa_eapol_variable var,
+@@ -1271,6 +1276,7 @@ void wpa_receive(struct wpa_authenticato
+ 	const u8 *key_data;
+ 	size_t keyhdrlen, mic_len;
+ 	u8 *mic;
++	struct wpabuf *eapol_buf;
+ 
+ 	if (!wpa_auth || !wpa_auth->conf.wpa || !sm)
+ 		return;
+@@ -1307,6 +1313,12 @@ void wpa_receive(struct wpa_authenticato
+ 		return;
+ 	}
+ 
++	eapol_buf = wpa_auth_get_eapol_for_event(sm->wpa_auth, sm->addr);
++	if (eapol_buf)
++		wpa_hexdump_buf(MSG_ERROR,"SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)", eapol_buf);
++	else
++		wpa_printf(MSG_INFO, "eapol_buf is null");
++
+ 	if (sm->wpa == WPA_VERSION_WPA2) {
+ 		if (key->type == EAPOL_KEY_TYPE_WPA) {
+ 			/*
+@@ -1523,12 +1535,14 @@ continue_processing:
+ 			wpa_auth_vlogger(wpa_auth, sm->addr, LOGGER_INFO,
+ 					 "received EAPOL-Key msg 4/4 in invalid state (%d) - dropped",
+ 					 sm->wpa_ptk_state);
++			wpa_auth_eapol_failure_report(sm->wpa_auth, eapol_buf, sm->addr, 4);
+ 			return;
+ 		}
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 		if (ml_process_m4_kde(sm, key_data, key_data_length)) {
+ 			wpa_auth_vlogger(wpa_auth, sm->addr, LOGGER_INFO,
+ 					 "received invalid ML EAPOL-Key msg 4/4 - dropped");
++			wpa_auth_eapol_failure_report(sm->wpa_auth, eapol_buf, sm->addr, 4);
+ 			return;
+ 		}
+ #endif
+@@ -3259,8 +3273,6 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 	int vlan_id = 0;
+ 	int owe_ptk_workaround = !!wpa_auth->conf.owe_ptk_workaround;
+ 	struct wpabuf *eapol_buf;
+-	u16 frame_type, frame_len;
+-	char *hex_buf = NULL;
+ 
+ 	SM_ENTRY_MA(WPA_PTK, PTKCALCNEGOTIATING, wpa_ptk);
+ 	sm->EAPOLKeyReceived = false;
+@@ -3362,6 +3374,7 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 				"invalid MIC in msg 2/4 of 4-Way Handshake");
+ 		wpa_printf(MSG_INFO, "invalid MIC in msg 2/4 of 4-Way Handshake!");
+ 		sm->disconnect_reason = WLAN_REASON_PREV_AUTH_NOT_VALID;
++		wpa_auth_eapol_failure_report(sm->wpa_auth, eapol_buf, sm->addr, 2);
+ 		if (psk_found)
+ 			wpa_auth_psk_failure_report(sm->wpa_auth, sm->addr);
+ 		return;
+@@ -3383,6 +3396,7 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 	if (wpa_parse_kde_ies(key_data, key_data_length, &kde) < 0) {
+ 		wpa_auth_vlogger(wpa_auth, sm->addr, LOGGER_INFO,
+ 				 "received EAPOL-Key msg 2/4 with invalid Key Data contents");
++		wpa_auth_eapol_failure_report(sm->wpa_auth, eapol_buf, sm->addr, 2);
+ 		return;
+ 	}
+ 	if (kde.rsn_ie) {
+@@ -3410,19 +3424,7 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 		/* MLME-DEAUTHENTICATE.request */
+ 		wpa_sta_disconnect(wpa_auth, sm->addr,
+ 				   WLAN_REASON_PREV_AUTH_NOT_VALID);
+-		frame_type = EAPOL_MSG_2;
+-		hex_buf = malloc(eapol_buf->used * 2 + 1);
+-		if (hex_buf == NULL) {
+-			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
+-			return;
+-		}
+-		wpa_snprintf_hex(hex_buf, sizeof(hex_buf), eapol_buf->buf, eapol_buf->used);
+-		frame_len = sizeof(hex_buf);
+-
+-		wpa_msg(wpa_auth->conf.msg_ctx, MSG_INFO,
+-			WPS_EVENT_EAPOL_FAIL_BUFFER MACSTR " type=%d len=%d buf=%s",
+-			MAC2STR(sm->addr), frame_type, frame_len, (const char *)hex_buf);
+-		os_free(hex_buf);
++		wpa_auth_eapol_failure_report(sm->wpa_auth, eapol_buf, sm->addr, 2);
+ 		return;
+ 	}
+ 	if ((!sm->rsnxe && kde.rsnxe) ||
+@@ -3439,18 +3441,7 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 		/* MLME-DEAUTHENTICATE.request */
+ 		wpa_sta_disconnect(wpa_auth, sm->addr,
+ 				   WLAN_REASON_PREV_AUTH_NOT_VALID);
+-		frame_type = EAPOL_MSG_2;
+-		hex_buf = malloc(eapol_buf->used * 2 + 1);
+-		if (hex_buf == NULL) {
+-			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
+-			return;
+-		}
+-		wpa_snprintf_hex(hex_buf, sizeof(hex_buf), eapol_buf->buf, eapol_buf->used);
+-		frame_len = sizeof(hex_buf);
+-		wpa_msg(wpa_auth->conf.msg_ctx, MSG_INFO,
+-			WPS_EVENT_EAPOL_FAIL_BUFFER MACSTR " type=%d len=%d buf=%s",
+-			MAC2STR(sm->addr), frame_type, frame_len, (const char *)hex_buf);
+-		os_free(hex_buf);
++		wpa_auth_eapol_failure_report(sm->wpa_auth, eapol_buf, sm->addr, 2);
+ 		return;
+ 	}
+ #ifdef CONFIG_OCV
+Index: hostapd/src/ap/wpa_auth.h
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth.h
++++ hostapd/src/ap/wpa_auth.h
+@@ -305,6 +305,7 @@ struct wpa_auth_callbacks {
+ 	void (*disconnect)(void *ctx, const u8 *addr, u16 reason);
+ 	int (*mic_failure_report)(void *ctx, const u8 *addr);
+ 	void (*psk_failure_report)(void *ctx, const u8 *addr);
++	void (*eapol_failure_report)(void *ctx, struct wpabuf *eapol_buf, const u8 *addr, int frame);
+ 	void (*set_eapol)(void *ctx, const u8 *addr, wpa_eapol_variable var,
+ 			  int value);
+ 	int (*get_eapol)(void *ctx, const u8 *addr, wpa_eapol_variable var);
+Index: hostapd/src/ap/wpa_auth_glue.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_glue.c
++++ hostapd/src/ap/wpa_auth_glue.c
+@@ -306,6 +306,35 @@ static void hostapd_wpa_auth_psk_failure
+ 	hostapd_ubus_notify(hapd, "key-mismatch", addr);
+ }
+ 
++static void hostapd_wpa_auth_eapol_failure_report(void *ctx, struct wpabuf *eapol_buf, const u8 *addr, int frame)
++{
++	struct hostapd_data *hapd = ctx;
++	u16 frame_type, frame_len;
++	u8 status_code, reason;
++	char *hex_buf = NULL;
++
++	reason = WLAN_REASON_PREV_AUTH_NOT_VALID;
++	status_code = WLAN_STATUS_UNSPECIFIED_FAILURE;
++	if (frame == 2)
++		frame_type = EAPOL_MSG_2;
++	else
++	 	frame_type = EAPOL_MSG_4;
++	frame_len = eapol_buf->used * 2 + 1;
++	hex_buf = malloc(eapol_buf->used * 2 + 1);
++	if (hex_buf == NULL) {
++		wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
++		return;
++	}
++	wpa_hexdump_buf(MSG_ERROR, "EAPOL buffer : ",eapol_buf);
++	wpa_snprintf_hex(hex_buf, frame_len, eapol_buf->buf, eapol_buf->used);
++
++	wpa_msg(hapd->msg_ctx, MSG_INFO,
++		WPS_EVENT_EAPOL_FAIL_BUFFER
++		MACSTR " status_code=%d reason=%d type=%d len=%d buf=%s",
++		MAC2STR(addr), status_code, reason, frame_type, frame_len, hex_buf);
++	os_free(hex_buf);
++	wpa_printf(MSG_INFO, "Shiv : buffer sent!");
++}
+ 
+ static void hostapd_wpa_auth_set_eapol(void *ctx, const u8 *addr,
+ 				       wpa_eapol_variable var, int value)
+@@ -1539,6 +1568,7 @@ int hostapd_setup_wpa(struct hostapd_dat
+ 		.disconnect = hostapd_wpa_auth_disconnect,
+ 		.mic_failure_report = hostapd_wpa_auth_mic_failure_report,
+ 		.psk_failure_report = hostapd_wpa_auth_psk_failure_report,
++		.eapol_failure_report = hostapd_wpa_auth_eapol_failure_report,
+ 		.set_eapol = hostapd_wpa_auth_set_eapol,
+ 		.get_eapol = hostapd_wpa_auth_get_eapol,
+ 		.get_eapol_for_event = hostapd_wpa_auth_get_eapol_for_event,

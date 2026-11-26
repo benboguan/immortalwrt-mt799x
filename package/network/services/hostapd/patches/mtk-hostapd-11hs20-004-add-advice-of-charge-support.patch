@@ -1,8 +1,8 @@
-diff --git a/hostapd/config_file.c b/hostapd/config_file.c
-index b47d2c2..83f15ef 100644
---- a/hostapd/config_file.c
-+++ b/hostapd/config_file.c
-@@ -1338,6 +1338,180 @@ fail:
+Index: hostapd/hostapd/config_file.c
+===================================================================
+--- hostapd.orig/hostapd/config_file.c
++++ hostapd/hostapd/config_file.c
+@@ -1338,6 +1338,198 @@ fail:
  	return ret;
  }
  
@@ -100,6 +100,8 @@ index b47d2c2..83f15ef 100644
 +	struct hostapd_advice_of_charge  *aoc;
 +	struct aoc_plan_data *plan;
 +	char *pos, *end;
++	char *endptr;
++	unsigned long val;
 +
 +	aoc = os_realloc_array(bss->aoc_data, bss->aoc_count + 1,
 +			sizeof(struct hostapd_advice_of_charge));
@@ -112,13 +114,23 @@ index b47d2c2..83f15ef 100644
 +	os_memset(aoc, 0, sizeof(*aoc));
 +
 +	pos = buf;
-+	aoc->advice_of_charge_type = atoi(pos);
++
++	errno = 0;
++	val = strtoul(pos, &endptr, 10);
++	if ((errno != 0) || (endptr == pos) || (val > UCHAR_MAX))
++		return -1;
++	aoc->advice_of_charge_type = (u8)val;
++
 +	pos = os_strchr(pos, ':');
 +	if (pos == NULL)
 +		return -1;
 +	pos++;
 +
-+	aoc->aoc_realm_encoding = atoi(pos);
++	errno = 0;
++	val = strtoul(pos, &endptr, 10);
++	if ((errno != 0) || (endptr == pos) || (val > UCHAR_MAX))
++		return -1;
++	aoc->aoc_realm_encoding = (u8)val;
 +
 +	pos = os_strchr(pos, ':');
 +	if (pos == NULL)
@@ -166,12 +178,18 @@ index b47d2c2..83f15ef 100644
 +		end = os_strchr(pos, ';');
 +
 +		if (end == NULL) {
-+			u8 plan_id = atoi(pos);
-+			plan->plan_information_len = hostapd_get_plan_info(plan->plan_info,plan_id);
++			errno = 0;
++			val = strtoul(pos, &endptr, 10);
++			if ((errno != 0) || (endptr == pos) || (val > UCHAR_MAX))
++				return -1;
++			plan->plan_information_len = hostapd_get_plan_info(plan->plan_info, (u8)val);
 +			pos = NULL;
 +		} else {
-+			u8 plan_id = atoi(pos);
-+			plan->plan_information_len = hostapd_get_plan_info(plan->plan_info,plan_id);
++			errno = 0;
++			val = strtoul(pos, &endptr, 10);
++			if ((errno != 0) || (endptr == pos) || (val > UCHAR_MAX))
++				return -1;
++			plan->plan_information_len = hostapd_get_plan_info(plan->plan_info, (u8)val);
 +			pos = end + 1;
 +		}
 +		aoc->aoc_plan_count++;
@@ -183,7 +201,7 @@ index b47d2c2..83f15ef 100644
  
  static int parse_3gpp_cell_net(struct hostapd_bss_config *bss, char *buf,
  			       int line)
-@@ -4063,6 +4237,9 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+@@ -4116,6 +4308,9 @@ static int hostapd_config_fill(struct ho
  	} else if (os_strcmp(buf, "venue_url") == 0) {
  		if (parse_venue_url(bss, pos, line) < 0)
  			return 1;
@@ -193,11 +211,11 @@ index b47d2c2..83f15ef 100644
  	} else if (os_strcmp(buf, "network_auth_type") == 0) {
  		u8 auth_type;
  		u16 redirect_url_len;
-diff --git a/src/ap/ap_config.c b/src/ap/ap_config.c
-index 466c084..b177081 100644
---- a/src/ap/ap_config.c
-+++ b/src/ap/ap_config.c
-@@ -876,6 +876,14 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
+Index: hostapd/src/ap/ap_config.c
+===================================================================
+--- hostapd.orig/src/ap/ap_config.c
++++ hostapd/src/ap/ap_config.c
+@@ -884,6 +884,14 @@ void hostapd_config_free_bss(struct host
  	os_free(conf->roaming_consortium);
  	os_free(conf->venue_name);
  	os_free(conf->venue_url);
@@ -212,11 +230,11 @@ index 466c084..b177081 100644
  	os_free(conf->nai_realm_data);
  	os_free(conf->network_auth_type);
  	os_free(conf->anqp_3gpp_cell_net);
-diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
-index c55cdf4..0d762e9 100644
---- a/src/ap/ap_config.h
-+++ b/src/ap/ap_config.h
-@@ -224,6 +224,22 @@ struct hostapd_venue_url {
+Index: hostapd/src/ap/ap_config.h
+===================================================================
+--- hostapd.orig/src/ap/ap_config.h
++++ hostapd/src/ap/ap_config.h
+@@ -225,6 +225,22 @@ struct hostapd_venue_url {
  	u8 url[254];
  };
  
@@ -239,9 +257,9 @@ index c55cdf4..0d762e9 100644
  #define MAX_NAI_REALMS 10
  #define MAX_NAI_REALMLEN 255
  #define MAX_NAI_EAP_METHODS 5
-@@ -583,6 +599,10 @@ struct hostapd_bss_config {
- 	unsigned int venue_url_count;
- 	struct hostapd_venue_url *venue_url;
+@@ -604,6 +620,10 @@ struct hostapd_bss_config {
+ 	int external_anqp_server;
+ #endif
  
 +	/* Advice of charge duples */
 +	unsigned int aoc_count;
@@ -250,11 +268,11 @@ index c55cdf4..0d762e9 100644
  	/* IEEE 802.11u - Network Authentication Type */
  	u8 *network_auth_type;
  	size_t network_auth_type_len;
-diff --git a/src/ap/gas_serv.c b/src/ap/gas_serv.c
-index bd8bc62..68c0600 100644
---- a/src/ap/gas_serv.c
-+++ b/src/ap/gas_serv.c
-@@ -354,6 +354,39 @@ static void anqp_add_venue_url(struct hostapd_data *hapd, struct wpabuf *buf)
+Index: hostapd/src/ap/gas_serv.c
+===================================================================
+--- hostapd.orig/src/ap/gas_serv.c
++++ hostapd/src/ap/gas_serv.c
+@@ -354,6 +354,39 @@ static void anqp_add_venue_url(struct ho
  	}
  }
  
@@ -294,7 +312,7 @@ index bd8bc62..68c0600 100644
  
  static void anqp_add_network_auth_type(struct hostapd_data *hapd,
  				       struct wpabuf *buf)
-@@ -1040,6 +1073,10 @@ gas_serv_build_gas_resp_payload(struct hostapd_data *hapd,
+@@ -1040,6 +1073,10 @@ gas_serv_build_gas_resp_payload(struct h
  			anqp_add_venue_url(hapd, buf);
  			continue;
  		}

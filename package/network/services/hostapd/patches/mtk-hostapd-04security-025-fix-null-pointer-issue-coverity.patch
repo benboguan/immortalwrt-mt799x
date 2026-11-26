@@ -1,0 +1,28 @@
+Index: hostapd/wpa_supplicant/wpa_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/wpa_supplicant.c
++++ hostapd/wpa_supplicant/wpa_supplicant.c
+@@ -2336,11 +2336,9 @@ void wpa_supplicant_associate(struct wpa
+ 	if (wpa_s->last_ssid == ssid) {
+ 		wpa_dbg(wpa_s, MSG_DEBUG, "Re-association to the same ESS");
+ #ifdef CONFIG_PE
+-		if(wpa_s->tempssid && ssid->mac_addr >= 1) {
+-			if (os_memcmp(wpa_s->tempssid , bss->ssid, bss->ssid_len) == 0)
++		if (bss && ssid->mac_addr >= 1) {
++			if (os_memcmp(wpa_s->tempssid, bss->ssid, bss->ssid_len) == 0)
+ 				wpa_s->reassoc_same_ess = 1;
+-			else
+-				wpa_s->reassoc_same_ess = 0;
+ 		}
+ #else
+ 		wpa_s->reassoc_same_ess = 1;
+@@ -2371,7 +2369,8 @@ void wpa_supplicant_associate(struct wpa
+ 	wpa_s->last_ssid = ssid;
+ 
+ #ifdef CONFIG_PE
+-	os_memcpy(wpa_s->tempssid, bss->ssid, bss->ssid_len);
++	if (bss)
++		os_memcpy(wpa_s->tempssid, bss->ssid, bss->ssid_len);
+ #endif
+ #ifdef CONFIG_IBSS_RSN
+ 	ibss_rsn_deinit(wpa_s->ibss_rsn);

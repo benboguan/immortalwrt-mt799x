@@ -1,8 +1,8 @@
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+Index: hostapd/src/ap/wpa_auth_ft.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ft.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
-@@ -2049,7 +2049,8 @@ wpa_ft_rrb_add_r0kh(struct wpa_authentic
+--- hostapd.orig/src/ap/wpa_auth_ft.c
++++ hostapd/src/ap/wpa_auth_ft.c
+@@ -2050,7 +2050,8 @@ wpa_ft_rrb_add_r0kh(struct wpa_authentic
  	os_memcpy(r0kh->id, r0kh_id, id_len);
  	r0kh->id_len = id_len;
  
@@ -12,20 +12,25 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
  
  	r0kh->next = *wpa_auth->conf.r0kh_list;
  	*wpa_auth->conf.r0kh_list = r0kh;
-@@ -4724,6 +4725,7 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
+@@ -4743,6 +4744,9 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
  	int session_timeout;
  	struct vlan_description vlan;
  	size_t pmk_r1_len;
 +	u8 r0kh_addr[ETH_ALEN];
++
++	os_memset(r0kh_addr, 0, sizeof(r0kh_addr));
  
  	RRB_GET_AUTH(FT_RRB_R0KH_ID, r0kh_id, msgtype, -1);
  	wpa_hexdump(MSG_DEBUG, "FT: R0KH-ID", f_r0kh_id, f_r0kh_id_len);
-@@ -4750,14 +4752,14 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
+@@ -4769,14 +4773,17 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
  	}
  
  	if (r0kh && (os_memcmp(r0kh->addr, src_addr, ETH_ALEN) != 0)) {
 -		hexstr2bin(f_r0kh_id, r0kh->addr, f_r0kh_id_len);
-+		hexstr2bin(f_r0kh_id, r0kh_addr, f_r0kh_id_len);
++		if (hexstr2bin(f_r0kh_id, r0kh_addr, f_r0kh_id_len) < 0) {
++			wpa_printf(MSG_DEBUG, "FT: invalid r0kh id");
++			goto out;
++		}
  		r0kh_addr_update = 1;
  	}
  
@@ -37,7 +42,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
  					auth, auth_len, msgtype,
  					cb ? 0 : 1);
  		else
-@@ -4774,17 +4776,17 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
+@@ -4793,19 +4800,19 @@ static int wpa_ft_rrb_rx_r1(struct wpa_a
  
  	if (r0kh_addr_update) {
  		if (wpa_ft_rrb_decrypt(key, key_len, enc, enc_len, auth, auth_len,
@@ -45,6 +50,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
 +					r0kh_addr, type, &plain, &plain_len) < 0)
  			goto out;
  
+ #if 0
  		if (!r0kh)
 -			r0kh = wpa_ft_rrb_add_r0kh(wpa_auth, r0kh_wildcard, r0kh->addr,
 +			r0kh = wpa_ft_rrb_add_r0kh(wpa_auth, r0kh_wildcard, r0kh_addr,
@@ -52,6 +58,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
  					wpa_auth->conf.rkh_pos_timeout);
  		if (!r0kh)
  			goto out;
+ #endif
  
 -		wpa_ft_rrb_seq_accept(wpa_auth, r0kh->seq, r0kh->addr, auth, auth_len,
 +		wpa_ft_rrb_seq_accept(wpa_auth, r0kh->seq, r0kh_addr, auth, auth_len,

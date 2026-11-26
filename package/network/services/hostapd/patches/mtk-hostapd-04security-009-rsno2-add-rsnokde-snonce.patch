@@ -1,21 +1,33 @@
-Index: hostapd-2022-07-29-b704dc72/hostapd/config_file.c
+Index: hostapd/hostapd/config_file.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/hostapd/config_file.c
-+++ hostapd-2022-07-29-b704dc72/hostapd/config_file.c
-@@ -3216,6 +3216,8 @@ static int hostapd_config_fill(struct ho
+--- hostapd.orig/hostapd/config_file.c
++++ hostapd/hostapd/config_file.c
+@@ -3044,6 +3044,20 @@ static int hostapd_config_fill(struct ho
  		os_free(bss->rsn_preauth_interfaces);
  		bss->rsn_preauth_interfaces = os_strdup(pos);
  #endif /* CONFIG_RSN_PREAUTH */
 +	} else if (os_strcmp(buf, "rsn_override_omit_rsnxe") == 0) {
-+		bss->rsn_override_omit_rsnxe = atoi(pos);
++		long val;
++		char *endptr;
++
++		errno = 0;
++		val = strtol(pos, &endptr, 10);
++		if ((errno != 0) || (endptr == pos) ||
++		    (val > INT_MAX) || (val < INT_MIN)) {
++			wpa_printf(MSG_ERROR,
++				   "Line %d: invalid rsn_override_omit_rsnxe '%s'",
++				   line, pos);
++			return 1;
++		}
++		bss->rsn_override_omit_rsnxe = (int)val;
  	} else if (os_strcmp(buf, "peerkey") == 0) {
  		wpa_printf(MSG_INFO,
  			   "Line %d: Obsolete peerkey parameter ignored", line);
-Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
+Index: hostapd/src/ap/ap_config.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/ap_config.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
-@@ -415,6 +415,8 @@ struct hostapd_bss_config {
+--- hostapd.orig/src/ap/ap_config.h
++++ hostapd/src/ap/ap_config.h
+@@ -400,6 +400,8 @@ struct hostapd_bss_config {
  	int rsn_preauth;
  	char *rsn_preauth_interfaces;
  
@@ -24,10 +36,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
  #ifdef CONFIG_IEEE80211R_AP
  	/* IEEE 802.11r - Fast BSS Transition */
  	u8 mobility_domain[MOBILITY_DOMAIN_ID_LEN];
-Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+Index: hostapd/src/ap/drv_callbacks.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/drv_callbacks.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+--- hostapd.orig/src/ap/drv_callbacks.c
++++ hostapd/src/ap/drv_callbacks.c
 @@ -376,10 +376,8 @@ int hostapd_notif_assoc(struct hostapd_d
  				   "Failed to initialize WPA state machine");
  			return -1;
@@ -41,10 +53,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
  #ifdef CONFIG_MTK_IEEE80211BE
  		ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len);
  #endif
-Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+Index: hostapd/src/ap/ieee802_11.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/ieee802_11.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+--- hostapd.orig/src/ap/ieee802_11.c
++++ hostapd/src/ap/ieee802_11.c
 @@ -2048,7 +2048,8 @@ void handle_auth_fils(struct hostapd_dat
  		resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
  		goto fail;
@@ -78,10 +90,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  #ifdef CONFIG_MTK_IEEE80211BE
  		ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len); /*for logan owe flow*/
  #endif
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+Index: hostapd/src/ap/wpa_auth.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
 @@ -771,9 +771,6 @@ void wpa_deinit(struct wpa_authenticator
  
  
@@ -144,7 +156,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  #ifdef CONFIG_P2P
  	if (kde.ip_addr_req && kde.ip_addr_req[0] &&
  	    wpa_auth->ip_pool && WPA_GET_BE32(sm->ip_addr) == 0) {
-@@ -3678,80 +3704,39 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
+@@ -3678,77 +3704,36 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
  			wpa_ie = wpa_ie + wpa_ie[1] + 2;
  		wpa_ie_len = wpa_ie[1] + 2;
  	}
@@ -244,12 +256,8 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
 +		}
  		wpa_hexdump(MSG_DEBUG, "EAPOL-Key msg 3/4 IEs after edits",
  			    wpa_ie, wpa_ie_len);
--	}
-+	} 
- #ifdef CONFIG_TESTING_OPTIONS
- 	if (conf->rsne_override_eapol_set) {
- 		wpa_ie_buf2 = replace_ie(
-@@ -5845,17 +5830,29 @@ void wpa_auth_set_auth_alg(struct wpa_st
+ 	}
+@@ -5860,17 +5845,29 @@ void wpa_auth_set_auth_alg(struct wpa_st
  }
  
  
@@ -287,10 +295,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  
  #ifdef CONFIG_DPP2
  void wpa_auth_set_dpp_z(struct wpa_state_machine *sm, const struct wpabuf *z)
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
+Index: hostapd/src/ap/wpa_auth.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
+--- hostapd.orig/src/ap/wpa_auth.h
++++ hostapd/src/ap/wpa_auth.h
 @@ -284,6 +284,8 @@ struct wpa_auth_config {
  	bool force_kdk_derivation;
  
@@ -311,10 +319,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
  void wpa_auth_set_dpp_z(struct wpa_state_machine *sm, const struct wpabuf *z);
  void wpa_auth_set_transition_disable(struct wpa_authenticator *wpa_auth,
  				     u8 val);
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_glue.c
+Index: hostapd/src/ap/wpa_auth_glue.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_glue.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_glue.c
+--- hostapd.orig/src/ap/wpa_auth_glue.c
++++ hostapd/src/ap/wpa_auth_glue.c
 @@ -223,6 +223,8 @@ static void hostapd_wpa_auth_conf(struct
  #endif /* CONFIG_PASN */
  
@@ -324,10 +332,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_glue.c
  }
  
  
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+Index: hostapd/src/ap/wpa_auth_i.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_i.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+--- hostapd.orig/src/ap/wpa_auth_i.h
++++ hostapd/src/ap/wpa_auth_i.h
 @@ -122,6 +122,8 @@ struct wpa_state_machine {
  	size_t wpa_ie_len;
  	u8 *rsnxe;
@@ -348,10 +356,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
  	u8 addr[ETH_ALEN];
  
  	struct rsn_pmksa_cache *pmksa;
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ie.c
+Index: hostapd/src/ap/wpa_auth_ie.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ie.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ie.c
+--- hostapd.orig/src/ap/wpa_auth_ie.c
++++ hostapd/src/ap/wpa_auth_ie.c
 @@ -648,8 +648,13 @@ int wpa_auth_gen_wpa_ie(struct wpa_authe
  		if (res < 0)
  			return res;
@@ -465,10 +473,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ie.c
  	else
  		ciphers = data.pairwise_cipher & wpa_auth->conf.wpa_pairwise;
  	if (!ciphers) {
-Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.c
+Index: hostapd/src/common/ieee802_11_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/ieee802_11_common.c
-+++ hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.c
+--- hostapd.orig/src/common/ieee802_11_common.c
++++ hostapd/src/common/ieee802_11_common.c
 @@ -148,6 +148,15 @@ static int ieee802_11_parse_vendor_speci
  			elems->rsne_override_2 = pos;
  			elems->rsne_override_2_len = elen;
@@ -485,10 +493,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.c
  		default:
  			wpa_printf(MSG_MSGDUMP, "Unknown WFA "
  				   "information element ignored "
-Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.h
+Index: hostapd/src/common/ieee802_11_common.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/ieee802_11_common.h
-+++ hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.h
+--- hostapd.orig/src/common/ieee802_11_common.h
++++ hostapd/src/common/ieee802_11_common.h
 @@ -125,6 +125,7 @@ struct ieee802_11_elems {
  #endif
  	const u8 *rsne_override;
@@ -505,10 +513,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.h
  
  	struct mb_ies_info mb_ies;
  	struct frag_ies_info frag_ies;
-Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_defs.h
+Index: hostapd/src/common/ieee802_11_defs.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/ieee802_11_defs.h
-+++ hostapd-2022-07-29-b704dc72/src/common/ieee802_11_defs.h
+--- hostapd.orig/src/common/ieee802_11_defs.h
++++ hostapd/src/common/ieee802_11_defs.h
 @@ -1380,9 +1380,12 @@ struct ieee80211_ampe_ie {
  #define WFA_RSNE_OVERRIDE_OUI_TYPE 0x29
  #define WFA_RSNE_OVERRIDE_2_OUI_TYPE 0x2a
@@ -522,10 +530,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_defs.h
  
  #define MULTI_AP_SUB_ELEM_TYPE 0x06
  #define MULTI_AP_TEAR_DOWN BIT(4)
-Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+Index: hostapd/src/common/wpa_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
-+++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+--- hostapd.orig/src/common/wpa_common.c
++++ hostapd/src/common/wpa_common.c
 @@ -3690,7 +3690,53 @@ static int wpa_parse_generic(const u8 *p
  				pos, dlen);
  		return 0;
@@ -595,10 +603,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
 +		WPA_GET_BE24(pos + 3) == 0x000029;
 +}
 +
-Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
+Index: hostapd/src/common/wpa_common.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.h
-+++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
+--- hostapd.orig/src/common/wpa_common.h
++++ hostapd/src/common/wpa_common.h
 @@ -144,6 +144,7 @@ WPA_CIPHER_BIP_CMAC_256)
  #define WFA_KEY_DATA_IP_ADDR_ALLOC RSN_SELECTOR(0x50, 0x6f, 0x9a, 5)
  #define WFA_KEY_DATA_TRANSITION_DISABLE RSN_SELECTOR(0x50, 0x6f, 0x9a, 0x20)
@@ -648,10 +656,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
 +bool rsn_is_snonce_cookie(const u8 *snonce);
  
  #endif /* WPA_COMMON_H */
-Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+Index: hostapd/src/ml/ml_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ml/ml_common.c
-+++ hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+--- hostapd.orig/src/ml/ml_common.c
++++ hostapd/src/ml/ml_common.c
 @@ -126,6 +126,70 @@ u8* ml_set_ml_link_kde(u8 *pos, u8 link_
  	return pos;
  }
@@ -723,7 +731,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
  int ml_parse_ie(const u8 *ie, size_t len, struct wpa_ml_ie_parse *ml, u8 *bssid)
  {
  	const u8 *pos, *end, *ci_end, *info_end;;
-@@ -950,7 +1014,6 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+@@ -969,7 +1033,6 @@ u8* ml_add_m3_kde(struct wpa_state_machi
  #endif
  		const u8 *rsne, *rsnxe;
  		size_t rsne_len = 0, rsnxe_len = 0;
@@ -731,14 +739,14 @@ Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
  
  		link = &ml_group->links[i];
  		if (link->link_id == sm->sta_ml_ie->link_id) {
-@@ -973,65 +1036,10 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+@@ -992,65 +1055,10 @@ u8* ml_add_m3_kde(struct wpa_state_machi
  			return NULL;
  		}
  
 -		wpa_printf(MSG_INFO, "ML: rsn_override:%d, rsn_override_2:%d", sm->rsn_override, sm->rsn_override_2);
--		if ((sm->rsn_override && 
+-		if ((sm->rsn_override &&
 -			get_vendor_ie(auth->wpa_ie, auth->wpa_ie_len, RSNE_OVERRIDE_IE_VENDOR_TYPE)) ||
--			(sm->rsn_override_2 && 
+-			(sm->rsn_override_2 &&
 -			get_vendor_ie(auth->wpa_ie, auth->wpa_ie_len, RSNE_OVERRIDE_2_IE_VENDOR_TYPE))) {
 -			const u8 *override_rsne = NULL, *override_rsnxe = NULL;
 -			const struct element *elem;
@@ -801,7 +809,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
  
  #ifdef CONFIG_IEEE80211R_AP
  		if (wpa_key_mgmt_ft(sm->wpa_key_mgmt) && rsne) {
-@@ -1072,13 +1080,13 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+@@ -1091,13 +1099,13 @@ u8* ml_add_m3_kde(struct wpa_state_machi
  
  		pos = ml_set_ml_link_kde(pos, link->link_id, link->addr,
  			rsne, rsne_len, rsnxe, rsnxe_len);

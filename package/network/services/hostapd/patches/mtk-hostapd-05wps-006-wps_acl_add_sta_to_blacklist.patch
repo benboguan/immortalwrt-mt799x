@@ -1,7 +1,7 @@
-Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+Index: hostapd/src/ap/hostapd.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+--- hostapd.orig/src/ap/hostapd.h
++++ hostapd/src/ap/hostapd.h
 @@ -296,6 +296,7 @@ struct hostapd_data {
  	unsigned int ap_pin_lockout_time;
  
@@ -10,10 +10,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
  #endif /* CONFIG_WPS */
  
  #ifdef CONFIG_MACSEC
-Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
+Index: hostapd/src/ap/wps_hostapd.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wps_hostapd.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
+--- hostapd.orig/src/ap/wps_hostapd.c
++++ hostapd/src/ap/wps_hostapd.c
 @@ -28,6 +28,15 @@
  #include "wps_hostapd.h"
  
@@ -30,7 +30,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
  #ifdef CONFIG_WPS_UPNP
  #include "wps/wps_upnp.h"
  static int hostapd_wps_upnp_init(struct hostapd_data *hapd,
-@@ -766,6 +775,168 @@ static void hostapd_wps_reenable_ap_pin(
+@@ -768,6 +777,169 @@ static void hostapd_wps_reenable_ap_pin(
  }
  
  
@@ -120,7 +120,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
 +{
 +	struct nl_msg *msg = NULL;
 +	struct nlattr *attr;
-+	int ret, cur_acl_policy = 0;
++	int ret = -1, cur_acl_policy = 0;
 +
 +	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
 +			nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, MTK_NL80211_VENDOR_ID) ||
@@ -131,7 +131,8 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
 +	if (!attr)
 +		goto fail;
 +
-+	nla_put_flag(msg, MTK_NL80211_VENDOR_ATTR_ACL_SHOW_ALL);
++	if (nla_put_flag(msg, MTK_NL80211_VENDOR_ATTR_ACL_SHOW_ALL))
++		goto fail;
 +
 +	nla_nest_end(msg, attr);
 +	ret = send_and_recv_msgs(drv, msg, acl_list_dump_callback, &cur_acl_policy, NULL, NULL);
@@ -156,7 +157,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
 +{
 +	struct nl_msg *msg = NULL;
 +	struct nlattr *attr;
-+	int ret;
++	int ret = -1;
 +	int cur_acl_policy = 0;
 +
 +	cur_acl_policy = wps_check_existing_acl_policy(drv);
@@ -199,7 +200,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
  static int wps_pwd_auth_fail(struct hostapd_data *hapd, void *ctx)
  {
  	struct wps_event_pwd_auth_fail *data = ctx;
-@@ -812,6 +983,26 @@ static int wps_pwd_auth_fail(struct host
+@@ -814,6 +986,26 @@ static int wps_pwd_auth_fail(struct host
  		eloop_register_timeout(hapd->ap_pin_lockout_time, 0,
  				       hostapd_wps_reenable_ap_pin, hapd,
  				       NULL);

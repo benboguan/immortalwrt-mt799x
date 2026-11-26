@@ -1,0 +1,149 @@
+diff --git a/hostapd/config_file.c b/hostapd/config_file.c
+index 33d97ea..51eb5f7 100644
+--- a/hostapd/config_file.c
++++ b/hostapd/config_file.c
+@@ -5114,6 +5114,10 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+ 	} else if (os_strcmp(buf, "punct_bitmap") == 0) {
+ 		conf->punct_bitmap = atoi(pos);
+ #endif /* CONFIG_IEEE80211BE */
++	} else if (os_strcmp(buf, "gas_init_req_dos_det") == 0) {
++		bss->gas_init_req_dos_det = atoi(pos);
++	} else if (os_strcmp(buf, "gas_init_req_max_pkt") == 0) {
++		bss->gas_init_req_max_pkt = atoi(pos);
+ #ifdef CONFIG_APUP
+ 	} else if (os_strcmp(buf, "apup") == 0) {
+ 		bss->apup = !!atoi(pos);
+diff --git a/hostapd/ctrl_iface.c b/hostapd/ctrl_iface.c
+index 075982f..a8b3e81 100644
+--- a/hostapd/ctrl_iface.c
++++ b/hostapd/ctrl_iface.c
+@@ -3863,6 +3863,10 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
+ 	} else if (os_strncmp(buf, "WPS_MAP_SEC ", 12) == 0) {
+ 		hapd->iface->interfaces->map_sec_enable = atoi(buf + 12);
+ #endif /* CONFIG_MTK_MAP */
++	} else if (os_strncmp(buf, "GAS_INIT_REQ_DOS_DET ", 21) == 0) {
++		hapd->conf->gas_init_req_dos_det = atoi(buf + 21);
++	} else if (os_strncmp(buf, "GAS_INIT_REQ_MAX_PKT ", 21) == 0) {
++		hapd->conf->gas_init_req_max_pkt = atoi(buf + 21);
+ 	} else {
+ 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
+ 		reply_len = 16;
+diff --git a/hostapd/hostapd_cli.c b/hostapd/hostapd_cli.c
+index 9772d35..796dd5c 100644
+--- a/hostapd/hostapd_cli.c
++++ b/hostapd/hostapd_cli.c
+@@ -1252,6 +1252,17 @@ static int hostapd_cli_cmd_force_rekey_gtk(struct wpa_ctrl *ctrl, int argc,
+ 	return wpa_ctrl_command(ctrl, "FORCE_REKEY_GTK");
+ }
+ 
++static int hostapd_cli_cmd_gas_init_req_dos_det(struct wpa_ctrl *ctrl, int argc,
++					char *argv[])
++{
++	return wpa_ctrl_command(ctrl, "GAS_INIT_REQ_DOS_DET");
++}
++
++static int hostapd_cli_cmd_gas_init_req_max_pkt(struct wpa_ctrl *ctrl, int argc,
++					char *argv[])
++{
++	return wpa_ctrl_command(ctrl, "GAS_INIT_REQ_MAX_PKT");
++}
+ 
+ static int hostapd_cli_cmd_vendor(struct wpa_ctrl *ctrl, int argc, char *argv[])
+ {
+@@ -1797,6 +1808,10 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
+ 	{ "driver", hostapd_cli_cmd_driver, NULL,
+ 	  "<driver sub command> [<hex formatted data>] = send driver command data" },
+ #endif /* ANDROID */
++	{ "gas_init_req_dos_det", hostapd_cli_cmd_gas_init_req_dos_det, NULL,
++	  "= gas init req dos det enable/disable"},
++	{ "gas_init_req_max_pkt", hostapd_cli_cmd_gas_init_req_max_pkt, NULL,
++	  "= gas init req max packet allowed when gas_init_req_dos_det enabled"},
+ 	{ NULL, NULL, NULL, NULL }
+ };
+ 
+diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
+index ff5d9e1..38a4bb2 100644
+--- a/src/ap/ap_config.h
++++ b/src/ap/ap_config.h
+@@ -967,6 +967,8 @@ struct hostapd_bss_config {
+ #ifdef CONFIG_IEEE80211AX
+ 	u8 dot11vmbssid;
+ #endif /* CONFIG_IEEE80211AX */
++	int gas_init_req_dos_det;
++	u32 gas_init_req_max_pkt;
+ };
+ 
+ /**
+diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
+index b7e0775..7bc5480 100644
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -6296,6 +6296,7 @@ static int handle_action(struct hostapd_data *hapd,
+ 			 unsigned int freq)
+ {
+ 	struct sta_info *sta;
++	struct hostapd_bss_config *conf = hapd->conf;
+ 	u8 *action __maybe_unused;
+ 
+ 	if (len < IEEE80211_HDRLEN + 2 + 1) {
+@@ -6383,6 +6384,35 @@ static int handle_action(struct hostapd_data *hapd,
+ #endif /* CONFIG_FST */
+ 	case WLAN_ACTION_PUBLIC:
+ 	case WLAN_ACTION_PROTECTED_DUAL:
++		if (len >= IEEE80211_HDRLEN + 2 &&
++			(mgmt->u.action.u.public_action.action ==
++			WLAN_PA_GAS_INITIAL_REQ) && conf->gas_init_req_dos_det) {
++			const u8 *sa = mgmt->sa;
++			if (!sta) {
++				sta = ap_sta_add(hapd, sa);
++				if (!sta) {
++					wpa_printf(MSG_DEBUG, "Failed to add STA " MACSTR
++							" for GAS query", MAC2STR(sa));
++					return 0;
++				}
++				sta->flags |= WLAN_STA_GAS;
++				sta->gas_sta_data.pre_dos_det = 0;
++				sta->gas_sta_data.prev_max_pkt_num = 0;
++				sta->gas_sta_data.gas_init_req_pkt_num = 0;
++			}
++			if ((sta->gas_sta_data.pre_dos_det != conf->gas_init_req_dos_det) ||
++				(sta->gas_sta_data.prev_max_pkt_num != conf->gas_init_req_max_pkt)) {
++				sta->gas_sta_data.gas_init_req_pkt_num = 0;
++				sta->gas_sta_data.pre_dos_det = conf->gas_init_req_dos_det;
++				sta->gas_sta_data.prev_max_pkt_num = conf->gas_init_req_max_pkt;
++			}
++			sta->gas_sta_data.gas_init_req_pkt_num++;
++			if (sta->gas_sta_data.gas_init_req_pkt_num > conf->gas_init_req_max_pkt) {
++				wpa_printf(MSG_DEBUG, "Seems to be DOS attack from STA " MACSTR
++							" ,packet dropped", MAC2STR(sa));
++				return 0;
++			}
++		}
+ 		if (len >= IEEE80211_HDRLEN + 2 &&
+ 		    mgmt->u.action.u.public_action.action ==
+ 		    WLAN_PA_20_40_BSS_COEX) {
+diff --git a/src/ap/sta_info.h b/src/ap/sta_info.h
+index 8ddb0f0..029fd8b 100644
+--- a/src/ap/sta_info.h
++++ b/src/ap/sta_info.h
+@@ -105,6 +105,12 @@ struct pasn_data {
+ #endif /* CONFIG_FILS */
+ };
+ 
++struct gas_sta_pkt_data {
++	u32 gas_init_req_pkt_num;
++	int pre_dos_det;
++	u32 prev_max_pkt_num;
++};
++
+ struct sta_info {
+ 	struct sta_info *next; /* next entry in sta list */
+ 	struct sta_info *hnext; /* next entry in hash table list */
+@@ -119,6 +125,7 @@ struct sta_info {
+ 	int supported_rates_len;
+ 	u8 qosinfo; /* Valid when WLAN_STA_WMM is set */
+ 	u32 bandwidth[2];
++	struct gas_sta_pkt_data gas_sta_data;
+ 
+ #ifdef CONFIG_MESH
+ 	enum mesh_plink_state plink_state;

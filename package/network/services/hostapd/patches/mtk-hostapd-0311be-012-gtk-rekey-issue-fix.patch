@@ -1,7 +1,7 @@
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+Index: hostapd/src/ap/wpa_auth.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
 @@ -399,9 +399,25 @@ void wpa_rekey_gtk(void *eloop_ctx, void
  	struct wpa_group *group, *next;
  #ifdef CONFIG_MTK_IEEE80211BE
@@ -37,26 +37,26 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  				group = wpa_auth->group;
  				while (group) {
  					wpa_group_get(wpa_auth, group);
-@@ -440,6 +458,8 @@ void wpa_rekey_gtk(void *eloop_ctx, void
- 									} else {
- 										wpa_printf(MSG_DEBUG, "the rekey happen in not assoc link ");
- 										wpa_auth_tmp = ((struct hostapd_data *)link->ctx)->wpa_auth;
-+										wpa_auth_tmp->ts.sec = now.sec;
-+										wpa_auth_tmp->ts.usec = now.usec;
- 										group = wpa_auth_tmp->group;
- 										while (group) {
- 											wpa_group_get(wpa_auth_tmp, group);
-@@ -447,7 +467,10 @@ void wpa_rekey_gtk(void *eloop_ctx, void
- 											group->GTKReKey = true;
- 											do {
- 												group->changed = false;
-+												/*only need to tx eapol in set up link, not update set up link gtk data*/
-+												group->mlo_link_no_need_rekey_gtk_data = true;
- 												wpa_group_sm_step(wpa_auth_tmp, group);
-+												group->mlo_link_no_need_rekey_gtk_data = false;
- 											} while (group->changed);
+@@ -441,6 +459,8 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 							} else {
+ 								wpa_printf(MSG_DEBUG, "the rekey happen in not assoc link ");
+ 								wpa_auth_tmp = ((struct hostapd_data *)link->ctx)->wpa_auth;
++								wpa_auth_tmp->ts.sec = now.sec;
++								wpa_auth_tmp->ts.usec = now.usec;
+ 								group = wpa_auth_tmp->group;
+ 								while (group) {
+ 									wpa_group_get(wpa_auth_tmp, group);
+@@ -448,7 +468,10 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 									group->GTKReKey = true;
+ 									do {
+ 										group->changed = false;
++										/*only need to tx eapol in set up link, not update set up link gtk data*/
++										group->mlo_link_no_need_rekey_gtk_data = true;
+ 										wpa_group_sm_step(wpa_auth_tmp, group);
++										group->mlo_link_no_need_rekey_gtk_data = false;
+ 									} while (group->changed);
  
- 											next = group->next;
+ 									next = group->next;
 @@ -462,6 +485,8 @@ void wpa_rekey_gtk(void *eloop_ctx, void
  				}
  			}
@@ -125,10 +125,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  	/* "GKeyDoneStations = GNoStations" is done in more robust way by
  	 * counting the STAs that are marked with GUpdateStationKeys instead of
  	 * including all STAs that could be in not-yet-completed state. */
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+Index: hostapd/src/ap/wpa_auth_i.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_i.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+--- hostapd.orig/src/ap/wpa_auth_i.h
++++ hostapd/src/ap/wpa_auth_i.h
 @@ -218,6 +218,10 @@ struct wpa_group {
  	/* Number of references except those in struct wpa_group->next */
  	unsigned int references;

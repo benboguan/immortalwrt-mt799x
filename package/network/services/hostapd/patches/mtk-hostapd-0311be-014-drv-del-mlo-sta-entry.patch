@@ -1,7 +1,7 @@
-diff --git a/src/ap/wpa_auth_ft.c b/src/ap/wpa_auth_ft.c
-index 844dda5..2989635 100644
---- a/src/ap/wpa_auth_ft.c
-+++ b/src/ap/wpa_auth_ft.c
+Index: hostapd/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_ft.c
++++ hostapd/src/ap/wpa_auth_ft.c
 @@ -32,6 +32,10 @@
  #include "ml/ml_common.h"
  #include "hostapd.h"
@@ -13,7 +13,7 @@ index 844dda5..2989635 100644
  
  extern u8 ml_get_link_id(struct wpa_state_machine *sm);
  
-@@ -4267,7 +4271,7 @@ static int wpa_ft_rrb_rx_request(struct wpa_authenticator *wpa_auth,
+@@ -4273,7 +4277,7 @@ static int wpa_ft_rrb_rx_request(struct
  	res = wpa_ft_process_auth_req(sm, body, len, &resp_ies,
  				      &resp_ies_len
  #ifdef CONFIG_MTK_IEEE80211BE
@@ -22,7 +22,7 @@ index 844dda5..2989635 100644
  #endif
  				);
  	if (res < 0) {
-@@ -5156,6 +5160,41 @@ out:
+@@ -5162,6 +5166,41 @@ out:
  }
  
  
@@ -32,7 +32,7 @@ index 844dda5..2989635 100644
 +{
 +	struct nl_msg *msg = NULL;
 +	struct nlattr *attr;
-+	int ret;
++	int ret = -1;
 +
 +	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
 +			nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, MTK_NL80211_VENDOR_ID) ||
@@ -64,7 +64,7 @@ index 844dda5..2989635 100644
  int wpa_ft_rrb_rx(struct wpa_authenticator *wpa_auth, const u8 *src_addr,
  		  const u8 *data, size_t data_len)
  {
-@@ -5216,6 +5255,15 @@ int wpa_ft_rrb_rx(struct wpa_authenticator *wpa_auth, const u8 *src_addr,
+@@ -5222,6 +5261,15 @@ int wpa_ft_rrb_rx(struct wpa_authenticat
  
  	pos++;
  	action = *pos++;
@@ -80,7 +80,7 @@ index 844dda5..2989635 100644
  	sta_addr = pos;
  	pos += ETH_ALEN;
  	target_ap_addr = pos;
-@@ -5239,7 +5287,6 @@ int wpa_ft_rrb_rx(struct wpa_authenticator *wpa_auth, const u8 *src_addr,
+@@ -5245,7 +5293,6 @@ int wpa_ft_rrb_rx(struct wpa_authenticat
  				   "address");
  			return -1;
  		}

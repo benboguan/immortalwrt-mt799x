@@ -1,0 +1,12 @@
+diff --git a/src/ap/wpa_auth.c b/src/ap/wpa_auth.c
+index 9d9913c..eb5a7d0 100644
+--- a/src/ap/wpa_auth.c
++++ b/src/ap/wpa_auth.c
+@@ -547,6 +547,7 @@ void wpa_rekey_gtk(void *eloop_ctx, void *timeout_ctx)
+                                       wpa_group_put(wpa_auth, group);
+                                       group = next;
+                               }
++                              break;
+                            }
+                         }
+                     }

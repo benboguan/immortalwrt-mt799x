@@ -1,0 +1,15 @@
+diff --git a/src/ap/neighbor_db.c b/src/ap/neighbor_db.c
+index 4c16847..475b75c 100644
+--- a/src/ap/neighbor_db.c
++++ b/src/ap/neighbor_db.c
+@@ -480,6 +480,10 @@ int add_stapro_neighbor_rep(struct hostapd_data *hapd, u8 *nei_rep,
+ 					start_pro = pos;
+ 					if (j < ml_link_num - ap_nei_tmp) {        //nei_rep of all the neighbours that are not Ap's
+ 						next_nei_rep = os_malloc(temp_len * (ml_link_num - (j + ap_nei_tmp)));
++						if (!next_nei_rep) {
++							wpa_printf(MSG_ERROR, "Failed to allocate memory for next_nei_rep\n");
++							return -1;
++						}
+ 						os_memcpy(next_nei_rep, (start_pro + (ap_nei_tmp - 1) * (temp_len + 1)),
+ 							temp_len * (ml_link_num - (j + ap_nei_tmp)));
+ 					}

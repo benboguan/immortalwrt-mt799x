@@ -1,8 +1,8 @@
-diff --git a/src/ap/drv_callbacks.c b/src/ap/drv_callbacks.c
-index c28893a..cefd1bd 100644
---- a/src/ap/drv_callbacks.c
-+++ b/src/ap/drv_callbacks.c
-@@ -1401,7 +1401,7 @@ static void hostapd_action_rx(struct hostapd_data *hapd,
+Index: hostapd/src/ap/drv_callbacks.c
+===================================================================
+--- hostapd.orig/src/ap/drv_callbacks.c
++++ hostapd/src/ap/drv_callbacks.c
+@@ -1388,7 +1388,7 @@ static void hostapd_action_rx(struct hos
  	}
  #ifdef CONFIG_IEEE80211R_AP
  	if (mgmt->u.action.category == WLAN_ACTION_FT) {
@@ -11,26 +11,27 @@ index c28893a..cefd1bd 100644
  		return;
  	}
  #endif /* CONFIG_IEEE80211R_AP */
-diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
-index 93ab8e7..3410deb 100644
---- a/src/ap/ieee802_11.c
-+++ b/src/ap/ieee802_11.c
-@@ -6295,8 +6295,8 @@ static int handle_action(struct hostapd_data *hapd,
+Index: hostapd/src/ap/ieee802_11.c
+===================================================================
+--- hostapd.orig/src/ap/ieee802_11.c
++++ hostapd/src/ap/ieee802_11.c
+@@ -6254,8 +6254,9 @@ static int handle_action(struct hostapd_
  #ifdef CONFIG_IEEE80211R_AP
  	case WLAN_ACTION_FT:
  		if (!sta ||
 -		    wpa_ft_action_rx(sta->wpa_sm, (u8 *) &mgmt->u.action,
 -				     len - IEEE80211_HDRLEN))
-+		    wpa_ft_action_rx(sta->wpa_sm, (u8 *) &mgmt->sa,
-+				     len - 10))
++		    wpa_ft_action_rx(sta->wpa_sm,
++				     (const u8 *)mgmt + offsetof(struct ieee80211_mgmt, sa),
++				     len - offsetof(struct ieee80211_mgmt, sa)))
  			break;
  		return 1;
  #endif /* CONFIG_IEEE80211R_AP */
-diff --git a/src/ap/wpa_auth_ft.c b/src/ap/wpa_auth_ft.c
-index 314398c..142998a 100644
---- a/src/ap/wpa_auth_ft.c
-+++ b/src/ap/wpa_auth_ft.c
-@@ -3617,6 +3617,7 @@ static int wpa_ft_process_auth_req(struct wpa_state_machine *sm,
+Index: hostapd/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_ft.c
++++ hostapd/src/ap/wpa_auth_ft.c
+@@ -3620,6 +3620,7 @@ static int wpa_ft_process_auth_req(struc
  	size_t identity_len = 0, radius_cui_len = 0;
  	int use_sha384;
  	size_t pmk_r1_len, kdk_len;
@@ -38,7 +39,7 @@ index 314398c..142998a 100644
  
  	*resp_ies = NULL;
  	*resp_ies_len = 0;
-@@ -3709,13 +3710,18 @@ static int wpa_ft_process_auth_req(struct wpa_state_machine *sm,
+@@ -3712,13 +3713,18 @@ static int wpa_ft_process_auth_req(struc
  	}
  #endif
  
@@ -58,7 +59,7 @@ index 314398c..142998a 100644
  				   pmk_r1_name, use_sha384) < 0)
  		return WLAN_STATUS_UNSPECIFIED_FAILURE;
  
-@@ -3728,7 +3734,7 @@ static int wpa_ft_process_auth_req(struct wpa_state_machine *sm,
+@@ -3731,7 +3737,7 @@ static int wpa_ft_process_auth_req(struc
  			return WLAN_STATUS_INVALID_PMKID;
  		wpa_printf(MSG_DEBUG,
  			   "FT: Generated PMK-R1 for FT-PSK locally");
@@ -67,7 +68,7 @@ index 314398c..142998a 100644
  				       pmk_r1, &pmk_r1_len, &pairwise, &vlan,
  				       &identity, &identity_len, &radius_cui,
  				       &radius_cui_len, &session_timeout) < 0) {
-@@ -3783,7 +3789,7 @@ pmk_r1_derived:
+@@ -3786,7 +3792,7 @@ pmk_r1_derived:
  		kdk_len = 0;
  
  	if (wpa_pmk_r1_to_ptk(pmk_r1, pmk_r1_len, sm->SNonce, sm->ANonce,
@@ -76,7 +77,7 @@ index 314398c..142998a 100644
  			      &sm->PTK, ptk_name, sm->wpa_key_mgmt,
  			      pairwise, kdk_len) < 0)
  		return WLAN_STATUS_UNSPECIFIED_FAILURE;
-@@ -4190,11 +4196,11 @@ int wpa_ft_action_rx(struct wpa_state_machine *sm, const u8 *data, size_t len)
+@@ -4193,11 +4199,11 @@ int wpa_ft_action_rx(struct wpa_state_ma
  		return -1;
  	}
  
@@ -93,7 +94,7 @@ index 314398c..142998a 100644
  
  	wpa_printf(MSG_DEBUG, "FT: Received FT Action frame (STA=" MACSTR
  		   " Target AP=" MACSTR " Action=%d)",
-@@ -4350,7 +4356,7 @@ static int wpa_ft_send_rrb_auth_resp(struct wpa_state_machine *sm,
+@@ -4353,7 +4359,7 @@ static int wpa_ft_send_rrb_auth_resp(str
  	 * data: Category[1] Action[1] STA_Address[6] Target_AP_Address[6]
  	 * Status_Code[2] FT Request action frame body[variable]
  	 */
@@ -102,7 +103,7 @@ index 314398c..142998a 100644
  
  	frame = os_malloc(sizeof(*frame) + rlen);
  	if (frame == NULL)
-@@ -4360,9 +4366,16 @@ static int wpa_ft_send_rrb_auth_resp(struct wpa_state_machine *sm,
+@@ -4363,9 +4369,16 @@ static int wpa_ft_send_rrb_auth_resp(str
  	frame->action_length = host_to_le16(rlen);
  	os_memcpy(frame->ap_address, wpa_auth->addr, ETH_ALEN);
  	pos = (u8 *) (frame + 1);
@@ -120,7 +121,7 @@ index 314398c..142998a 100644
  	pos += ETH_ALEN;
  #ifdef CONFIG_MTK_IEEE80211BE
  	if (mladdr && sm->dot11MultiLinkActivated)
-@@ -5293,25 +5306,41 @@ int wpa_ft_rrb_rx(struct wpa_authenticator *wpa_auth, const u8 *src_addr,
+@@ -5296,25 +5309,43 @@ int wpa_ft_rrb_rx(struct wpa_authenticat
  	start = pos;
  	end = pos + alen;
  
@@ -157,20 +158,22 @@ index 314398c..142998a 100644
 +		pos += 15;
 +		action = *pos++;
 +		pos += ETH_ALEN;
-+	}
-+
-+	if (frame->packet_type == FT_PACKET_RESPONSE) {
++	} else if (frame->packet_type == FT_PACKET_RESPONSE) {
 +		sta_addr = pos;
 +		pos += ETH_ALEN;
 +		pos++;
 +		action = *pos++;
 +		pos += ETH_ALEN;
++	} else {
++		wpa_printf(MSG_DEBUG, "FT: Unknown RRB packet type %d",
++			   frame->packet_type);
++		return -1;
 +	}
 +
  	target_ap_addr = pos;
  	pos += ETH_ALEN;
  	wpa_printf(MSG_DEBUG, "FT: RRB Action Frame: action=%d sta_addr="
-@@ -5356,7 +5385,7 @@ int wpa_ft_rrb_rx(struct wpa_authenticator *wpa_auth, const u8 *src_addr,
+@@ -5359,7 +5390,7 @@ int wpa_ft_rrb_rx(struct wpa_authenticat
  		wpa_printf(MSG_DEBUG, "FT: FT Packet Type - Response "
  			   "(status_code=%d)", status_code);
  

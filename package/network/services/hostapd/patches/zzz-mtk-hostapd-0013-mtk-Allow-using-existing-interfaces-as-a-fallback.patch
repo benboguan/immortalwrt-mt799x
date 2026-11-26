@@ -1,0 +1,34 @@
+diff --git a/src/ap/hostapd.c b/src/ap/hostapd.c
+index 42c1aaa..4e0de0c 100644
+--- a/src/ap/hostapd.c
++++ b/src/ap/hostapd.c
+@@ -1307,16 +1307,24 @@  static int hostapd_setup_bss(struct hostapd_data *hapd, int first)
+ 			} while (mac_in_conf(hapd->iconf, hapd->own_addr));
+ 		}
+ 
+-		hapd->interface_added = 1;
+ 		if (hostapd_if_add(hapd->iface->bss[0], WPA_IF_AP_BSS,
+ 				   conf->iface, addr, hapd,
+ 				   &hapd->drv_priv, force_ifname, if_addr,
+ 				   conf->bridge[0] ? conf->bridge : NULL,
+ 				   first == -1)) {
+-			wpa_printf(MSG_ERROR, "Failed to add BSS (BSSID="
+-				   MACSTR ")", MAC2STR(hapd->own_addr));
+-			hapd->interface_added = 0;
+-			return -1;
++			/* Try to use existing interface */
++			if (hostapd_if_add(hapd->iface->bss[0], WPA_IF_AP_BSS,
++					   conf->iface, hapd->own_addr, hapd,
++					   &hapd->drv_priv, force_ifname,
++					   if_addr,
++					   conf->bridge[0] ? conf->bridge : NULL,
++					   1)) {
++				wpa_printf(MSG_ERROR, "Failed to add BSS (BSSID="
++					   MACSTR ")", MAC2STR(hapd->own_addr));
++				return -1;
++			}
++		} else {
++			hapd->interface_added = 1;
+ 		}
+ 
+ 		if (!addr)

@@ -1,8 +1,8 @@
-diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
-index 892ad7f..76d234b 100644
---- a/src/ap/ieee802_11.c
-+++ b/src/ap/ieee802_11.c
-@@ -1655,6 +1655,7 @@ static void handle_auth_sae(struct hostapd_data *hapd, struct sta_info *sta,
+Index: hostapd/src/ap/ieee802_11.c
+===================================================================
+--- hostapd.orig/src/ap/ieee802_11.c
++++ hostapd/src/ap/ieee802_11.c
+@@ -1655,6 +1655,7 @@ static void handle_auth_sae(struct hosta
  			goto remove_sta;
  		if (sta->sae->state >= SAE_CONFIRMED ||
  		    !(hapd->conf->mesh & MESH_ENABLED)) {
@@ -10,7 +10,7 @@ index 892ad7f..76d234b 100644
  			const u8 *var;
  			size_t var_len;
  			u16 peer_send_confirm;
-@@ -1680,7 +1681,19 @@ static void handle_auth_sae(struct hostapd_data *hapd, struct sta_info *sta,
+@@ -1680,7 +1681,19 @@ static void handle_auth_sae(struct hosta
  				return;
  			}
  
@@ -31,11 +31,25 @@ index 892ad7f..76d234b 100644
  				resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
  				goto reply;
  			}
-@@ -2654,6 +2667,17 @@ static int pasn_wd_handle_sae_confirm(struct hostapd_data *hapd,
+@@ -2626,7 +2639,8 @@ static int pasn_wd_handle_sae_confirm(st
+ 	struct pasn_data *pasn = sta->pasn;
+ 	const u8 *data;
+ 	size_t buf_len;
+-	u16 res, alg, seq, status;
++	u16 alg, seq, status;
++	int ret;
  
- 	res = sae_check_confirm(&pasn->sae, data + 6, buf_len - 6);
- 	if (res != WLAN_STATUS_SUCCESS) {
-+		if (res == SAE_KEY_MISMATCH) {
+ 	if (!wd)
+ 		return -1;
+@@ -2652,8 +2666,19 @@ static int pasn_wd_handle_sae_confirm(st
+ 		return -1;
+ 	}
+ 
+-	res = sae_check_confirm(&pasn->sae, data + 6, buf_len - 6);
+-	if (res != WLAN_STATUS_SUCCESS) {
++	ret = sae_check_confirm(&pasn->sae, data + 6, buf_len - 6);
++	if (ret != WLAN_STATUS_SUCCESS) {
++		if (ret == SAE_KEY_MISMATCH) {
 +			u8 notify_mac[ETH_ALEN];
 +#ifdef CONFIG_MTK_IEEE80211BE
 +			if (pasn->sae->dot11MultiLinkActivated)
@@ -49,11 +63,11 @@ index 892ad7f..76d234b 100644
  		wpa_printf(MSG_DEBUG, "PASN: SAE failed checking confirm");
  		return -1;
  	}
-diff --git a/src/common/sae.c b/src/common/sae.c
-index 6771e3c..02f525d 100644
---- a/src/common/sae.c
-+++ b/src/common/sae.c
-@@ -2461,7 +2461,7 @@ int sae_check_confirm(struct sae_data *sae, const u8 *data, size_t len)
+Index: hostapd/src/common/sae.c
+===================================================================
+--- hostapd.orig/src/common/sae.c
++++ hostapd/src/common/sae.c
+@@ -2461,7 +2461,7 @@ int sae_check_confirm(struct sae_data *s
  			    data + 2, hash_len);
  		wpa_hexdump(MSG_DEBUG, "SAE: Calculated verifier",
  			    verifier, hash_len);
@@ -62,10 +76,10 @@ index 6771e3c..02f525d 100644
  	}
  
  #ifdef CONFIG_SAE_PK
-diff --git a/src/common/sae.h b/src/common/sae.h
-index 2692380..4e30b68 100644
---- a/src/common/sae.h
-+++ b/src/common/sae.h
+Index: hostapd/src/common/sae.h
+===================================================================
+--- hostapd.orig/src/common/sae.h
++++ hostapd/src/common/sae.h
 @@ -23,6 +23,7 @@
  #define SAE_CONFIRM_MAX_LEN (2 + SAE_MAX_HASH_LEN)
  #endif /* CONFIG_SAE_PK */
@@ -74,11 +88,11 @@ index 2692380..4e30b68 100644
  
  /* Special value returned by sae_parse_commit() */
  #define SAE_SILENTLY_DISCARD 65535
-diff --git a/src/common/wpa_ctrl.h b/src/common/wpa_ctrl.h
-index 0b92094..1ba305f 100644
---- a/src/common/wpa_ctrl.h
-+++ b/src/common/wpa_ctrl.h
-@@ -348,6 +348,7 @@ extern "C" {
+Index: hostapd/src/common/wpa_ctrl.h
+===================================================================
+--- hostapd.orig/src/common/wpa_ctrl.h
++++ hostapd/src/common/wpa_ctrl.h
+@@ -337,6 +337,7 @@ extern "C" {
  #define AP_STA_CONNECTED "AP-STA-CONNECTED "
  #define AP_STA_DISCONNECTED "AP-STA-DISCONNECTED "
  #define AP_STA_POSSIBLE_PSK_MISMATCH "AP-STA-POSSIBLE-PSK-MISMATCH "

@@ -1,0 +1,28 @@
+Index: hostapd-2022.07.29~b704dc72/src/common/wpa_common.c
+===================================================================
+--- hostapd-2022.07.29~b704dc72.orig/src/common/wpa_common.c
++++ hostapd-2022.07.29~b704dc72/src/common/wpa_common.c
+@@ -4387,9 +4387,9 @@ bool rsn_is_snonce_cookie(const u8 *snon
+ 
+ int is_ft_akm(const unsigned char *akm)
+ {
+-	unsigned char ft_akm_types[4] = {3, 4, 9, 25};
++	unsigned char ft_akm_types[] = {3, 4, 9, 25};
+ 	unsigned char rsn_oui[3] = {0x00, 0x0f, 0xac};
+-	unsigned char ft_akm_cnt = 4, i = 0;
++	unsigned char ft_akm_cnt = ARRAY_SIZE(ft_akm_types), i = 0;
+ 
+ 	if (memcmp(akm, rsn_oui, 3) != 0)
+ 		return 0;
+@@ -4403,9 +4403,9 @@ int is_ft_akm(const unsigned char *akm)
+ 
+ int is_non_ft_akm(const unsigned char *akm)
+ {
+-	unsigned char non_ft_akm_types[5] = {1, 2, 5, 8, 24};
++	unsigned char non_ft_akm_types[] = {1, 2, 5, 8, 24};
+ 	unsigned char rsn_oui[3] = {0x00, 0x0f, 0xac};
+-	unsigned char non_ft_akm_cnt = 4, i = 0;
++	unsigned char non_ft_akm_cnt = ARRAY_SIZE(non_ft_akm_types), i = 0;
+ 
+ 	if (memcmp(akm, rsn_oui, 3) != 0)
+ 		return 0;

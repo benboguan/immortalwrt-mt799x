@@ -1,0 +1,40 @@
+diff --git a/src/common/wpa_common.c b/src/common/wpa_common.c
+index 5abc987..04401b7 100644
+--- a/src/common/wpa_common.c
++++ b/src/common/wpa_common.c
+@@ -1085,11 +1085,31 @@ int wpa_ft_mic(int key_mgmt, int peer_key_mgmt, const u8 *kck, size_t kck_len, c
+ 				wpa_printf(MSG_INFO, "FT: ml_group->ml_link_num = %zu",
+ 					ml_group->ml_link_num);
+ 
++				/* 802.11be 12.6.2: AP MLD RSNE may differ across links
++				 * only in AKM list and MFPR. Per-link RSNE in MIC iff
++				 * one of those differs; else use main rsnie (PMKID). */
+ 				if (need_ml_rsn) {
+-					link_rsne[ml_info.link_id] = rsnie;
+-					link_rsne_len[ml_info.link_id] = rsnie_len;
+-					wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp mai link rsne append PMKID & PMKLIST",
+-						link_rsne[ml_info.link_id], link_rsne_len[ml_info.link_id]);
++					struct wpa_ie_data setup_d;
++					int have_setup = (rsnie && rsnie_len > 0 &&
++						wpa_parse_wpa_ie_rsn(rsnie, rsnie_len, &setup_d) == 0);
++
++					for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
++						struct wpa_ie_data lk_d;
++
++						if (!(valid_links & BIT(i)))
++							continue;
++						if (i == ml_info.link_id ||
++						    !link_rsne[i] || !link_rsne_len[i] ||
++						    !have_setup ||
++						    wpa_parse_wpa_ie_rsn(link_rsne[i],
++							link_rsne_len[i], &lk_d) != 0 ||
++						    (lk_d.key_mgmt == setup_d.key_mgmt &&
++						     (lk_d.capabilities & WPA_CAPABILITY_MFPR) ==
++						     (setup_d.capabilities & WPA_CAPABILITY_MFPR))) {
++							link_rsne[i] = rsnie;
++							link_rsne_len[i] = rsnie_len;
++						}
++					}
+ 				}
+ 			}
+ 		}

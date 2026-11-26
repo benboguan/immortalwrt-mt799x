@@ -1,0 +1,43 @@
+Index: hostapd-2022-07-29-b704dc72/hostapd/config_file.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/hostapd/config_file.c	2025-12-03 20:27:06.510656410 +0800
++++ hostapd-2022-07-29-b704dc72/hostapd/config_file.c	2025-12-03 20:33:17.350829273 +0800
+@@ -2493,6 +2493,8 @@
+ 		os_strlcpy(bss->bridge, pos, sizeof(bss->bridge));
+ 		if (!bss->wds_bridge[0])
+ 			os_strlcpy(bss->wds_bridge, pos, sizeof(bss->wds_bridge));
++	} else if (os_strcmp(buf, "bridge_hairpin") == 0) {
++		bss->bridge_hairpin = atoi(pos);
+ 	} else if (os_strcmp(buf, "snoop_iface") == 0) {
+ 		os_strlcpy(bss->snoop_iface, pos, sizeof(bss->snoop_iface));
+ 	} else if (os_strcmp(buf, "vlan_bridge") == 0) {
+Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/ap_config.h	2025-12-03 20:27:06.530657067 +0800
++++ hostapd-2022-07-29-b704dc72/src/ap/ap_config.h	2025-12-03 20:33:49.775893987 +0800
+@@ -304,6 +304,7 @@
+ 	char snoop_iface[IFNAMSIZ + 1];
+ 	char vlan_bridge[IFNAMSIZ + 1];
+ 	char wds_bridge[IFNAMSIZ + 1];
++	int bridge_hairpin;
+ 
+ 	char *config_id;
+ 
+Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.c	2025-12-03 20:27:06.262648267 +0800
++++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.c	2025-12-03 20:35:17.234765606 +0800
+@@ -1527,6 +1527,13 @@
+ 		}
+ 	}
+ 
++	if (conf->bridge[0]) {
++		wpa_printf(MSG_DEBUG, "Interface '%s' bridge hairpin mode %d", conf->iface, conf->bridge_hairpin);
++		if (conf->bridge_hairpin) {
++			hostapd_drv_br_port_set_attr(hapd, DRV_BR_PORT_ATTR_HAIRPIN_MODE, 1);
++		}
++	}
++
+ 	if (!hostapd_drv_none(hapd) && vlan_init(hapd)) {
+ 		wpa_printf(MSG_ERROR, "VLAN initialization failed.");
+ 		return -1;

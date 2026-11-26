@@ -1,0 +1,400 @@
+Index: hostapd/hostapd/config_file.c
+===================================================================
+--- hostapd.orig/hostapd/config_file.c
++++ hostapd/hostapd/config_file.c
+@@ -3123,6 +3123,18 @@ static int hostapd_config_fill(struct ho
+ 		bss->ft_over_ds = atoi(pos);
+ 	} else if (os_strcmp(buf, "ft_psk_generate_local") == 0) {
+ 		bss->ft_psk_generate_local = atoi(pos);
++	} else if (os_strcmp(buf, "reliable_11r") == 0) {
++		char *endptr;
++		unsigned long val;
++
++		errno = 0;
++		val = strtoul(pos, &endptr, 10);
++		if ((errno != 0) || (endptr == pos) || (val > UCHAR_MAX)) {
++			wpa_printf(MSG_DEBUG, "Line %d: Invalid reliable_11r '%s'",
++				   line, pos);
++			return 1;
++		}
++		bss->reliable_11r = (u8)val;
+ #endif /* CONFIG_IEEE80211R_AP */
+ #ifndef CONFIG_NO_CTRL_IFACE
+ 	} else if (os_strcmp(buf, "ctrl_interface") == 0) {
+Index: hostapd/src/ap/ap_config.h
+===================================================================
+--- hostapd.orig/src/ap/ap_config.h
++++ hostapd/src/ap/ap_config.h
+@@ -423,6 +423,7 @@ struct hostapd_bss_config {
+ 	int ft_over_ds;
+ 	int ft_psk_generate_local;
+ 	int r1_max_key_lifetime;
++	u8 reliable_11r;
+ #endif /* CONFIG_IEEE80211R_AP */
+ 
+ 	char *ctrl_interface; /* directory for UNIX domain sockets */
+Index: hostapd/src/ap/wpa_auth.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
+@@ -738,6 +738,10 @@ struct wpa_authenticator * wpa_init(cons
+ 	wpa_auth->group = wpa_group_init(wpa_auth, 0, 1);
+ 	if (!wpa_auth->group) {
+ 		os_free(wpa_auth->wpa_ie);
++		if (wpa_auth->wpa_ie_ft)
++			os_free(wpa_auth->wpa_ie_ft);
++		if (wpa_auth->wpa_ie_non_ft)
++			os_free(wpa_auth->wpa_ie_non_ft);
+ 		os_free(wpa_auth);
+ 		return NULL;
+ 	}
+@@ -748,6 +752,10 @@ struct wpa_authenticator * wpa_init(cons
+ 		wpa_printf(MSG_ERROR, "PMKSA cache initialization failed.");
+ 		os_free(wpa_auth->group);
+ 		os_free(wpa_auth->wpa_ie);
++		if (wpa_auth->wpa_ie_ft)
++			os_free(wpa_auth->wpa_ie_ft);
++		if (wpa_auth->wpa_ie_non_ft)
++			os_free(wpa_auth->wpa_ie_non_ft);
+ 		os_free(wpa_auth);
+ 		return NULL;
+ 	}
+@@ -758,6 +766,10 @@ struct wpa_authenticator * wpa_init(cons
+ 		wpa_printf(MSG_ERROR, "FT PMK cache initialization failed.");
+ 		os_free(wpa_auth->group);
+ 		os_free(wpa_auth->wpa_ie);
++		if (wpa_auth->wpa_ie_ft)
++			os_free(wpa_auth->wpa_ie_ft);
++		if (wpa_auth->wpa_ie_non_ft)
++			os_free(wpa_auth->wpa_ie_non_ft);
+ 		pmksa_cache_auth_deinit(wpa_auth->pmksa);
+ 		os_free(wpa_auth);
+ 		return NULL;
+@@ -3754,6 +3766,21 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
+ 	/* If FT is used, wpa_auth->wpa_ie includes both RSNIE and MDIE */
+ 	wpa_ie = sm->wpa_auth->wpa_ie;
+ 	wpa_ie_len = sm->wpa_auth->wpa_ie_len;
++#ifdef CONFIG_IEEE80211R_AP
++	/* for mtk reliable 11r feature */
++	if (sm->wpa_auth->conf.reliable_11r) {
++		if (wpa_key_mgmt_ft(sm->wpa_key_mgmt)) {
++			wpa_ie = sm->wpa_auth->wpa_ie_ft;
++			wpa_ie_len = sm->wpa_auth->wpa_ie_ft_len;
++			wpa_printf(MSG_INFO, "reliable 11r: remove non-ft akm in eapol");
++		} else {
++			wpa_ie = sm->wpa_auth->wpa_ie_non_ft;
++			wpa_ie_len = sm->wpa_auth->wpa_ie_non_ft_len;
++			wpa_printf(MSG_INFO, "reliable 11r: remove ft akm in eapol");
++		}
++	}
++#endif
++
+ 	if (sm->wpa == WPA_VERSION_WPA && (conf->wpa & WPA_PROTO_RSN) &&
+ 	    wpa_ie_len > wpa_ie[1] + 2U && wpa_ie[0] == WLAN_EID_RSN) {
+ 		/* WPA-only STA, remove RSN IE and possible MDIE */
+Index: hostapd/src/ap/wpa_auth.h
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth.h
++++ hostapd/src/ap/wpa_auth.h
+@@ -225,6 +225,7 @@ struct wpa_auth_config {
+ 	int pmk_r1_push;
+ 	int ft_over_ds;
+ 	int ft_psk_generate_local;
++	u8 reliable_11r;
+ #endif /* CONFIG_IEEE80211R_AP */
+ 	int disable_gtk;
+ 	int ap_mlme;
+Index: hostapd/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_ft.c
++++ hostapd/src/ap/wpa_auth_ft.c
+@@ -2937,6 +2937,16 @@ u8 * wpa_sm_write_assoc_resp_ies(struct
+ 		rsnie_len = res;
+ 		wpa_hexdump(MSG_DEBUG, "FT: rsnie",
+ 			    rsnie, rsnie_len);
++
++#ifdef	CONFIG_IEEE80211R_AP
++		if (sm->wpa_auth->conf.reliable_11r) {
++			remove_akm_from_rsn_ie(rsnie, &rsnie_len, 0);
++			if (rsnie_len < res) {
++				wpa_printf(MSG_INFO, "reliable 11r: remove non-ft akm in ft reassoc rsp");
++				res = rsnie_len;
++			}
++		}
++#endif
+ 		pos += res;
+ 	}
+ 
+@@ -3835,6 +3845,16 @@ pmk_r1_derived:
+ 	ret = wpa_write_rsn_ie(conf, pos, end - pos, parse.rsn_pmkid);
+ 	if (ret < 0)
+ 		goto fail;
++	if (sm->wpa_auth->conf.reliable_11r && ret > 0 && pos[0] == WLAN_EID_RSN) {
++		size_t new_len = ret;
++
++		remove_akm_from_rsn_ie(pos, &new_len, 0);
++		if (new_len < ret) {
++			wpa_printf(MSG_INFO, "reliable 11r: remove non-ft akm in ft auth");
++			ret = new_len;
++		}
++	}
++
+ 	pos += ret;
+ 
+ 	ret = wpa_write_mdie(conf, pos, end - pos);
+Index: hostapd/src/ap/wpa_auth_glue.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_glue.c
++++ hostapd/src/ap/wpa_auth_glue.c
+@@ -40,6 +40,10 @@ static void hostapd_wpa_auth_conf(struct
+ 				  struct wpa_auth_config *wconf)
+ {
+ 	int sae_pw_id;
++#ifdef CONFIG_IEEE80211R_AP
++	struct ft_remote_r0kh *r0kh = NULL;
++	struct ft_remote_r1kh *r1kh = NULL;
++#endif
+ 
+ 	os_memset(wconf, 0, sizeof(*wconf));
+ 	wconf->wpa = conf->wpa;
+@@ -105,6 +109,29 @@ static void hostapd_wpa_auth_conf(struct
+ 	wconf->pmk_r1_push = conf->pmk_r1_push;
+ 	wconf->ft_over_ds = conf->ft_over_ds;
+ 	wconf->ft_psk_generate_local = conf->ft_psk_generate_local;
++	wconf->reliable_11r = conf->reliable_11r;
++	wpa_printf(MSG_DEBUG, "%s 11r config", conf->iface);
++	wpa_printf(MSG_DEBUG, "reliable_11r=%d", conf->reliable_11r);
++	wpa_hexdump(MSG_DEBUG, "mobility_domain:", conf->mobility_domain, MOBILITY_DOMAIN_ID_LEN);
++	wpa_printf(MSG_DEBUG, "r0_key_lifetime=%d", conf->r0_key_lifetime);
++	wpa_hexdump(MSG_DEBUG, "r1_key_holder:", conf->r1_key_holder, FT_R1KH_ID_LEN);
++	wpa_printf(MSG_DEBUG, "rkh_pull_timeout=%d", conf->rkh_pull_timeout);
++	wpa_printf(MSG_DEBUG, "rkh_pull_retries=%d", conf->rkh_pull_retries);
++	wpa_printf(MSG_DEBUG, "pmk_r1_push=%d", conf->pmk_r1_push);
++	wpa_printf(MSG_DEBUG, "ft_psk_generate_local=%d", conf->ft_psk_generate_local);
++	wpa_printf(MSG_DEBUG, "ft_over_ds=%d", conf->ft_over_ds);
++	for (r0kh = conf->r0kh_list; r0kh; r0kh = r0kh->next) {
++		wpa_hexdump(MSG_DEBUG, "r0kh addr:", r0kh->addr, ETH_ALEN);
++		wpa_hexdump(MSG_DEBUG, "r0kh id:", r0kh->id, r0kh->id_len);
++		wpa_hexdump(MSG_DEBUG, "r0kh key:", r0kh->key, 32);
++	}
++	for (r1kh = conf->r1kh_list; r1kh; r1kh = r1kh->next) {
++		wpa_hexdump(MSG_DEBUG, "r1kh addr:", r1kh->addr, ETH_ALEN);
++		wpa_hexdump(MSG_DEBUG, "r1kh id:", r1kh->id, FT_R1KH_ID_LEN);
++		wpa_hexdump(MSG_DEBUG, "r1kh key:", r1kh->key, 32);
++	}
++	wpa_printf(MSG_DEBUG, "reassociation_deadline=%d", conf->reassociation_deadline);
++	wpa_printf(MSG_DEBUG, "nas_identifier=%s", conf->nas_identifier);
+ #endif /* CONFIG_IEEE80211R_AP */
+ #ifdef CONFIG_HS20
+ 	wconf->disable_gtk = conf->disable_dgaf;
+Index: hostapd/src/ap/wpa_auth_i.h
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_i.h
++++ hostapd/src/ap/wpa_auth_i.h
+@@ -268,6 +268,13 @@ struct wpa_authenticator {
+ 	struct bitfield *ip_pool;
+ #endif /* CONFIG_P2P */
+ 	struct os_time ts;
++#ifdef CONFIG_IEEE80211R_AP
++	/*for reliable 11r*/
++	u8 *wpa_ie_ft;
++	size_t wpa_ie_ft_len;
++	u8 *wpa_ie_non_ft;
++	size_t wpa_ie_non_ft_len;
++#endif
+ };
+ 
+ 
+Index: hostapd/src/ap/wpa_auth_ie.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_ie.c
++++ hostapd/src/ap/wpa_auth_ie.c
+@@ -708,7 +708,35 @@ int wpa_auth_gen_wpa_ie(struct wpa_authe
+ 		return -1;
+ 	os_memcpy(wpa_auth->wpa_ie, buf, pos - buf);
+ 	wpa_auth->wpa_ie_len = pos - buf;
++#ifdef CONFIG_IEEE80211R_AP
++	if (wpa_auth->conf.reliable_11r) {
++		os_free(wpa_auth->wpa_ie_ft);
++		wpa_auth->wpa_ie_ft_len = wpa_auth->wpa_ie_len;
++		wpa_auth->wpa_ie_ft = os_malloc(wpa_auth->wpa_ie_ft_len);
++		if (wpa_auth->wpa_ie_ft == NULL) {
++			os_free(wpa_auth->wpa_ie);
++			wpa_auth->wpa_ie = NULL;
++			return -1;
++		}
++		os_memcpy(wpa_auth->wpa_ie_ft, wpa_auth->wpa_ie, wpa_auth->wpa_ie_len);
++		remove_akm_from_rsn_ie(wpa_auth->wpa_ie_ft, &wpa_auth->wpa_ie_ft_len, 0);
++		wpa_hexdump(MSG_MSGDUMP, "reliable 11r: wpa_ie_ft", wpa_auth->wpa_ie_ft, wpa_auth->wpa_ie_ft_len);
+ 
++		os_free(wpa_auth->wpa_ie_non_ft);
++		wpa_auth->wpa_ie_non_ft_len = wpa_auth->wpa_ie_len;
++		wpa_auth->wpa_ie_non_ft = os_malloc(wpa_auth->wpa_ie_non_ft_len);
++		if (wpa_auth->wpa_ie_non_ft == NULL) {
++			os_free(wpa_auth->wpa_ie_ft);
++			wpa_auth->wpa_ie_ft = NULL;
++			os_free(wpa_auth->wpa_ie);
++			wpa_auth->wpa_ie = NULL;
++			return -1;
++		}
++		os_memcpy(wpa_auth->wpa_ie_non_ft, wpa_auth->wpa_ie, wpa_auth->wpa_ie_len);
++		remove_akm_from_rsn_ie(wpa_auth->wpa_ie_non_ft, &wpa_auth->wpa_ie_non_ft_len, 1);
++		wpa_hexdump(MSG_MSGDUMP, "reliable 11r: wpa_ie_non_ft", wpa_auth->wpa_ie_non_ft, wpa_auth->wpa_ie_non_ft_len);
++	}
++#endif
+ 	return 0;
+ }
+ 
+Index: hostapd/src/common/wpa_common.c
+===================================================================
+--- hostapd.orig/src/common/wpa_common.c
++++ hostapd/src/common/wpa_common.c
+@@ -1045,6 +1045,12 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 
+ 					valid_links |= BIT(link->link_id);
+ 					link_rsne[link->link_id] = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSN);
++#ifdef CONFIG_IEEE80211R_AP
++					if (auth->conf.reliable_11r) {
++						link_rsne[link->link_id] = get_ie(auth->wpa_ie_ft, auth->wpa_ie_ft_len, WLAN_EID_RSN);
++						wpa_printf(MSG_INFO, "reliable 11r: remove non-ft akm in ft assoc rsp");
++					}
++#endif
+ 					link_rsne_len[link->link_id] = link_rsne[link->link_id] ? link_rsne[link->link_id][1] + 2 : 0;
+ 					link_rsnxe[link->link_id] = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSNX);
+ 					link_rsnxe_len[link->link_id] = link_rsnxe[link->link_id] ? link_rsnxe[link->link_id][1] + 2 : 0;
+@@ -4373,3 +4379,99 @@ bool rsn_is_snonce_cookie(const u8 *snon
+ 		WPA_GET_BE24(pos + 3) == 0x000029;
+ }
+ 
++int is_ft_akm(const unsigned char *akm)
++{
++	unsigned char ft_akm_types[4] = {3, 4, 9, 25};
++	unsigned char rsn_oui[3] = {0x00, 0x0f, 0xac};
++	unsigned char ft_akm_cnt = 4, i = 0;
++
++	if (memcmp(akm, rsn_oui, 3) != 0)
++		return 0;
++	for (i = 0; i < ft_akm_cnt; i++) {
++		if (akm[3] == ft_akm_types[i])
++			return 1;
++	}
++
++	return 0;
++}
++
++int is_non_ft_akm(const unsigned char *akm)
++{
++	unsigned char non_ft_akm_types[4] = {1, 2, 8, 24};
++	unsigned char rsn_oui[3] = {0x00, 0x0f, 0xac};
++	unsigned char non_ft_akm_cnt = 4, i = 0;
++
++	if (memcmp(akm, rsn_oui, 3) != 0)
++		return 0;
++	for (i = 0; i < non_ft_akm_cnt; i++) {
++		if (akm[3] == non_ft_akm_types[i])
++			return 1;
++	}
++
++	return 0;
++}
++
++void remove_akm_from_rsn_ie(unsigned char *rsn_ie, size_t *rsn_ie_len,
++		unsigned char remove_type_ft)
++{
++	unsigned char *ptr = NULL, *end = NULL, *akm_list = NULL, *akm = NULL;
++	unsigned short pairwise_count = 0, akm_count = 0, new_akm_count = 0;
++	unsigned char len = 0, akm_bytes_removed = 0, new_len = 0;
++	unsigned char removed = 0, i = 0;
++	unsigned char new_akm_list[128] = {0}, org_len = *rsn_ie_len;
++
++	len = rsn_ie[1];
++	ptr = rsn_ie + 2;
++	end = rsn_ie + org_len;
++
++    /*skip Version (2 bytes), Group Cipher Suite (4 bytes)*/
++	ptr += 2 + 4;
++
++	/*skip Pairwise Cipher Suite Count (2 bytes) and list*/
++	pairwise_count = ptr[0] | (ptr[1] << 8);
++	ptr += 2 + pairwise_count * 4;
++
++    /*AKM Suite Count*/
++	akm_count = ptr[0] | (ptr[1] << 8);
++	if (akm_count >= 0xff)
++		return;
++	akm_list = ptr + 2;
++	for (i = 0; i < akm_count; i++) {
++		akm = akm_list + i * 4;
++		/* for normal sta, sta only see non-ft akm matched in beacon/probr rsp
++		 * here need remove all ft akm in rsnie
++		 */
++		if (remove_type_ft && is_ft_akm(akm)) {
++			removed = 1;
++			continue;
++		}
++		/* for reliable 11r sta, sta replace non-ft akm matched in beacon/probr rsp to ft akm
++		 * here need remove all non-ft akm matched in rsnie
++		 */
++		if (!remove_type_ft && is_non_ft_akm(akm)) {
++			removed = 1;
++			continue;
++		}
++		memcpy(new_akm_list + new_akm_count * 4, akm, 4);
++		new_akm_count++;
++	}
++
++	if (!removed)
++		return;
++
++    /*update AKM Suite Count and List*/
++	ptr[0] = new_akm_count & 0xFF;
++	ptr[1] = (new_akm_count >> 8) & 0xFF;
++	memcpy(akm_list, new_akm_list, new_akm_count * 4);
++    /*compute new len*/
++	akm_bytes_removed = (akm_count - new_akm_count) * 4;
++	new_len = len - akm_bytes_removed;
++	rsn_ie[1] = new_len;
++	*rsn_ie_len = org_len - akm_bytes_removed;
++
++	/*move fields that after akm list ahead*/
++	if (akm_bytes_removed > 0 && (akm_list + akm_count * 4 < end))
++		memmove(akm_list + new_akm_count * 4,
++			akm_list + akm_count * 4,
++			end - (akm_list + akm_count * 4));
++}
+Index: hostapd/src/common/wpa_common.h
+===================================================================
+--- hostapd.orig/src/common/wpa_common.h
++++ hostapd/src/common/wpa_common.h
+@@ -824,5 +824,5 @@ int wpa_pasn_parse_parameter_ie(const u8
+ void wpa_pasn_add_rsnxe(struct wpabuf *buf, u16 capab);
+ void rsn_set_snonce_cookie(u8 *snonce);
+ bool rsn_is_snonce_cookie(const u8 *snonce);
+-
++void remove_akm_from_rsn_ie(unsigned char *rsn_ie, size_t *rsn_ie_len, u8 remove_type_ft);
+ #endif /* WPA_COMMON_H */
+Index: hostapd/src/ml/ml_common.c
+===================================================================
+--- hostapd.orig/src/ml/ml_common.c
++++ hostapd/src/ml/ml_common.c
+@@ -1053,6 +1053,20 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+ 		}
+ 
+ 		rsne = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSN);
++#ifdef CONFIG_IEEE80211R_AP
++	/* for mtk reliable 11r feature */
++	if (sm->wpa_auth->conf.reliable_11r) {
++		if (wpa_key_mgmt_ft(sm->wpa_key_mgmt)) {
++			rsne = get_ie(auth->wpa_ie_ft, auth->wpa_ie_ft_len, WLAN_EID_RSN);
++			rsne_len = rsne ? rsne[1] + 2 : 0;
++			wpa_printf(MSG_INFO, "reliable 11r: remove non-ft akm in ml eapol");
++		} else {
++			rsne = get_ie(auth->wpa_ie_non_ft, auth->wpa_ie_non_ft_len, WLAN_EID_RSN);
++			rsne_len = rsne ? rsne[1] + 2 : 0;
++			wpa_printf(MSG_INFO, "reliable 11r: remove ft akm in ml eapol");
++		}
++	}
++#endif
+ 		rsne_len = rsne ? rsne[1] + 2 : 0;
+ 		rsnxe = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSNX);
+ 		rsnxe_len = rsnxe ? rsnxe[1] + 2 : 0;

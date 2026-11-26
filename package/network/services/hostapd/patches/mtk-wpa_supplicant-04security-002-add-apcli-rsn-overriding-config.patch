@@ -437,9 +437,9 @@ Index: hostapd/wpa_supplicant/sme.c
  		   		"SAE: get empty rsnxe, try to use another non-hidden bss entry(ssid=%s)!", bss->ssid);
 -				rsnxe = wpa_bss_get_rsnxe(bss);
 +				rsnxe = wpa_bss_get_rsnxe(wpa_s, bss);
- 			}
- 		}
- 
+ 			} else {
+ 				wpa_printf(MSG_DEBUG,
+ 					"SAE: BSS not available after probe fallback");
 @@ -509,7 +509,7 @@ static void sme_send_authentication(stru
  		const u8 *rsn;
  		struct wpa_ie_data ied;

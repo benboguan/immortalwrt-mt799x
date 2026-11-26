@@ -1,8 +1,8 @@
-diff --git a/hostapd/ctrl_iface.c b/hostapd/ctrl_iface.c
-index b4336e6..2a87007 100644
---- a/hostapd/ctrl_iface.c
-+++ b/hostapd/ctrl_iface.c
-@@ -3465,6 +3465,11 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
+Index: hostapd/hostapd/ctrl_iface.c
+===================================================================
+--- hostapd.orig/hostapd/ctrl_iface.c
++++ hostapd/hostapd/ctrl_iface.c
+@@ -3477,6 +3477,11 @@ static int hostapd_ctrl_iface_receive_pr
  	} else if (os_strncmp(buf, "BSS_TM_REQ ", 11) == 0) {
  		if (hostapd_ctrl_iface_bss_tm_req(hapd, buf + 11))
  			reply_len = -1;
@@ -14,11 +14,11 @@ index b4336e6..2a87007 100644
  	} else if (os_strncmp(buf, "COLOC_INTF_REQ ", 15) == 0) {
  		if (hostapd_ctrl_iface_coloc_intf_req(hapd, buf + 15))
  			reply_len = -1;
-diff --git a/hostapd/hostapd_cli.c b/hostapd/hostapd_cli.c
-index d99e39c..d29a1b8 100644
---- a/hostapd/hostapd_cli.c
-+++ b/hostapd/hostapd_cli.c
-@@ -683,6 +683,33 @@ static int hostapd_cli_cmd_ess_disassoc(struct wpa_ctrl *ctrl, int argc,
+Index: hostapd/hostapd/hostapd_cli.c
+===================================================================
+--- hostapd.orig/hostapd/hostapd_cli.c
++++ hostapd/hostapd/hostapd_cli.c
+@@ -683,6 +683,33 @@ static int hostapd_cli_cmd_ess_disassoc(
  	return wpa_ctrl_command(ctrl, buf);
  }
  
@@ -52,7 +52,7 @@ index d99e39c..d29a1b8 100644
  
  static int hostapd_cli_cmd_bss_tm_req(struct wpa_ctrl *ctrl, int argc,
  				      char *argv[])
-@@ -1654,6 +1681,10 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
+@@ -1637,6 +1664,10 @@ static const struct hostapd_cli_cmd host
  	  "= show this usage help" },
  	{ "interface", hostapd_cli_cmd_interface, hostapd_complete_interface,
  	  "[ifname] = show interfaces/select interface" },
@@ -63,10 +63,10 @@ index d99e39c..d29a1b8 100644
  #ifdef CONFIG_FST
  	{ "fst", hostapd_cli_cmd_fst, NULL,
  	  "<params...> = send FST-MANAGER control interface command" },
-diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
-index 451c4eb..8330c7e 100644
---- a/src/ap/ctrl_iface_ap.c
-+++ b/src/ap/ctrl_iface_ap.c
+Index: hostapd/src/ap/ctrl_iface_ap.c
+===================================================================
+--- hostapd.orig/src/ap/ctrl_iface_ap.c
++++ hostapd/src/ap/ctrl_iface_ap.c
 @@ -26,6 +26,10 @@
  #include "taxonomy.h"
  #include "wnm_ap.h"
@@ -78,7 +78,7 @@ index 451c4eb..8330c7e 100644
  
  #ifdef CONFIG_CTRL_IFACE_MIB
  
-@@ -1139,6 +1143,95 @@ int hostapd_ctrl_iface_ess_disassoc(struct hostapd_data *hapd,
+@@ -1139,6 +1143,112 @@ int hostapd_ctrl_iface_ess_disassoc(stru
  	return wnm_send_ess_disassoc_imminent(hapd, sta, url, disassoc_timer);
  }
  
@@ -90,7 +90,6 @@ index 451c4eb..8330c7e 100644
 +	char *delim;
 +	size_t len;
 +	struct wpabuf *payload, *buf;
-+	int ret = 0;
 +	const char *pos;
 +	int dialog_token = 0;
 +	struct gas_dialog_info *dialog;
@@ -105,8 +104,18 @@ index 451c4eb..8330c7e 100644
 +
 +	pos = os_strstr(cmd, " token=");
 +	if (pos) {
++		long val;
++		char *endptr;
++
 +		pos += 7;
-+		dialog_token = atoi(pos);
++		errno = 0;
++		val = strtol(pos, &endptr, 10);
++		if ((errno != 0) || (endptr == pos) ||
++		    (val > INT_MAX) || (val < INT_MIN)) {
++			wpa_printf(MSG_ERROR, "Invalid token");
++			return -1;
++		}
++		dialog_token = (int)val;
 +	}
 +
 +	if ((delim = os_strstr(cmd, " ZTM_NTF_CERT_RESP=")) > 0) {
@@ -146,8 +155,10 @@ index 451c4eb..8330c7e 100644
 +			wpa_printf(MSG_ERROR, "Dialog found but it is zero");
 +	}
 +	buf = wpabuf_alloc(15 + len);
-+	if (buf == NULL)
++	if (buf == NULL) {
++		wpabuf_free(payload);
 +		return -1;
++	}
 +	if (cert_resp) {
 +		cert_resp_len = gas_anqp_add_element(buf, ANQP_VENDOR_SPECIFIC);
 +		wpabuf_put_be24(buf, OUI_RUCKUS);
@@ -155,30 +166,36 @@ index 451c4eb..8330c7e 100644
 +		wpabuf_put_u8(buf, RKS_ANQP_STYPE_CERT_RESP);
 +		wpabuf_put_u8(buf, 0); /* Reserved */
 +		wpabuf_put_buf(buf, payload); /*cert response payload*/
++		wpabuf_free(payload);
 +		gas_anqp_set_element_len(buf, cert_resp_len);
 +		wpa_printf(MSG_ERROR, "Send RKS ANQP ZTM Cert Resp");
 +		gas_serv_req_rks_anqp_processing(hapd, addr, dialog_token, 0, buf);
++		return 0;
 +	} else if (join_resp) {
 +		wpa_printf(MSG_ERROR, "Join response received");
 +		if (dialog) {
 +			wpa_printf(MSG_ERROR, "Copy ZTM Join Resp Payload");
 +			dialog->sd_resp = payload ;
-+		}
++		} else
++			wpabuf_free(payload);
++		wpabuf_free(buf);
++		return 0;
 +	} else {
 +		wpa_printf(MSG_ERROR, "No response received");
++		wpabuf_free(payload);
++		wpabuf_free(buf);
 +		return -1;
 +	}
-+	return ret;
 +}
 +/*CCN67_ANQP*/
  
  int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
  				  const char *cmd)
-diff --git a/src/ap/ctrl_iface_ap.h b/src/ap/ctrl_iface_ap.h
-index 614f042..bb62047 100644
---- a/src/ap/ctrl_iface_ap.h
-+++ b/src/ap/ctrl_iface_ap.h
-@@ -53,5 +53,9 @@ int hostapd_ctrl_iface_acl_show_mac(struct mac_acl_entry *acl, int num,
+Index: hostapd/src/ap/ctrl_iface_ap.h
+===================================================================
+--- hostapd.orig/src/ap/ctrl_iface_ap.h
++++ hostapd/src/ap/ctrl_iface_ap.h
+@@ -53,5 +53,9 @@ int hostapd_ctrl_iface_acl_show_mac(stru
  				    char *buf, size_t buflen);
  int hostapd_disassoc_accept_mac(struct hostapd_data *hapd);
  int hostapd_disassoc_deny_mac(struct hostapd_data *hapd);
@@ -188,11 +205,11 @@ index 614f042..bb62047 100644
 +/*CCN67_ANQP*/
  
  #endif /* CTRL_IFACE_AP_H */
-diff --git a/src/ap/gas_serv.c b/src/ap/gas_serv.c
-index 11b5ff7..64e3758 100644
---- a/src/ap/gas_serv.c
-+++ b/src/ap/gas_serv.c
-@@ -1483,7 +1483,174 @@ static void rx_anqp_vendor_specific(struct hostapd_data *hapd,
+Index: hostapd/src/ap/gas_serv.c
+===================================================================
+--- hostapd.orig/src/ap/gas_serv.c
++++ hostapd/src/ap/gas_serv.c
+@@ -1483,7 +1483,192 @@ static void rx_anqp_vendor_specific(stru
  		break;
  	}
  }
@@ -218,8 +235,15 @@ index 11b5ff7..64e3758 100644
 +	}
 +	if(prep_cert) {
 +		struct gas_dialog_info *di;
++		int len;
++
 +		/*Send request data to ZTMD*/
-+		os_snprintf(addr, sizeof(addr), MACSTR, MAC2STR(sa));
++		len = os_snprintf(addr, sizeof(addr), MACSTR, MAC2STR(sa));
++		if (len < 0 || len >= sizeof(addr)) {
++			wpa_printf(MSG_ERROR, "%s:%d: os_snprintf failed or truncated", __func__, __LINE__);
++			return;
++		}
++
 +		wpa_msg(hapd->msg_ctx, MSG_ERROR, RKS_ANQP_CERT_REQ  " %s %u %u",  addr, dialog_token, payload);
 +
 +		di = gas_dialog_create(hapd, sa, dialog_token);
@@ -240,6 +264,7 @@ index 11b5ff7..64e3758 100644
 +	u8 *join_resp_len;
 +	char addr[100];
 +	struct gas_dialog_info *di;
++	int len;
 +
 +	/*set GAS come back delay
 +	Send GAS Initial Response with
@@ -247,7 +272,12 @@ index 11b5ff7..64e3758 100644
 +
 +	hapd->conf->gas_comeback_delay = 300;
 +	/*Send request data to ZTMD*/
-+	os_snprintf(addr, sizeof(addr), MACSTR, MAC2STR(sa));
++	len = os_snprintf(addr, sizeof(addr), MACSTR, MAC2STR(sa));
++	if (len < 0 || len >= sizeof(addr)) {
++		wpa_printf(MSG_ERROR, "%s:%d: os_snprintf failed or truncated", __func__, __LINE__);
++		return;
++	}
++
 +	wpa_msg(hapd->msg_ctx, MSG_ERROR, RKS_ANQP_JOIN_REQ  " %s %u %u",  addr, dialog_token, payload);
 +
 +	wpa_printf(MSG_ERROR, "RKS ANQP ZTM: Preparing ZTM Join response with delay");
@@ -272,31 +302,36 @@ index 11b5ff7..64e3758 100644
 +					const u8 *sa, const u8 *query, size_t query_len,
 +					const u8 *data, size_t data_len, u8 dialog_token)
 +{
-+    struct wpabuf *msg;
-+    const u8 *pos = query, *end = query + data_len;
++	struct wpabuf *msg;
++	const u8 *pos = query, *end = query + data_len;
 +	u8 type, subtype;
 +
 +	msg = wpabuf_alloc(100);
 +	if (msg == NULL)
 +		return NULL;
 +
-+	if (end - pos <= 1)
++	if (end - pos <= 1) {
++		wpabuf_free(msg);
 +		return NULL;
++	}
 +
 +	pos += 3;
-+	if (*pos != RKS_ANQP_OUI_TYPE)
++	if (*pos != RKS_ANQP_OUI_TYPE) {
++		wpabuf_free(msg);
 +		return NULL;
++	}
 +
 +	type = *pos++;
 +	subtype = *pos++;
 +	wpa_printf(MSG_ERROR, "RKS ANQP ZTM Req: Received subtype %u ", subtype);
- 
++
 +	pos++; /* Reserved */
 +
 +	switch (subtype) {
 +	case RKS_ANQP_STYPE_CERT_REQ:
 +		wpa_printf(MSG_ERROR, "ANQP: RKS Cert Req");
 +		rx_anqp_rks_cert_req(hapd, *pos, sa, dialog_token, msg);
++		wpabuf_free(msg);
 +		msg = NULL;
 +		break;
 +	case RKS_ANQP_STYPE_JOIN_REQ:
@@ -316,7 +351,7 @@ index 11b5ff7..64e3758 100644
 +					  int prot, struct wpabuf *buf)
 +{
 +	struct wpabuf *tx_buf;
-+
+ 
 +	if (wpabuf_len(buf) > hapd->conf->gas_frag_limit ||
 +	    hapd->conf->gas_comeback_delay) {
 +		struct gas_dialog_info *di;
@@ -367,7 +402,7 @@ index 11b5ff7..64e3758 100644
  
  static void gas_serv_req_local_processing(struct hostapd_data *hapd,
  					  const u8 *sa, u8 dialog_token,
-@@ -1766,6 +1933,20 @@ static void gas_serv_rx_gas_initial_req(struct hostapd_data *hapd,
+@@ -1766,6 +1951,20 @@ static void gas_serv_rx_gas_initial_req(
  			wpa_printf(MSG_DEBUG, "ANQP: Invalid Query Request");
  			return;
  		}
@@ -388,7 +423,7 @@ index 11b5ff7..64e3758 100644
  
  		switch (info_id) {
  		case ANQP_QUERY_LIST:
-@@ -1824,6 +2005,22 @@ static void gas_serv_rx_gas_comeback_req(struct hostapd_data *hapd,
+@@ -1824,6 +2023,22 @@ static void gas_serv_rx_gas_comeback_req
  			return;
  		goto send_resp;
  	}
@@ -411,11 +446,11 @@ index 11b5ff7..64e3758 100644
  
  	frag_len = wpabuf_len(dialog->sd_resp) - dialog->sd_resp_pos;
  	if (frag_len > hapd->conf->gas_frag_limit) {
-diff --git a/src/ap/gas_serv.h b/src/ap/gas_serv.h
-index 1528af4..8be94a3 100644
---- a/src/ap/gas_serv.h
-+++ b/src/ap/gas_serv.h
-@@ -91,5 +91,10 @@ void gas_serv_deinit(struct hostapd_data *hapd);
+Index: hostapd/src/ap/gas_serv.h
+===================================================================
+--- hostapd.orig/src/ap/gas_serv.h
++++ hostapd/src/ap/gas_serv.h
+@@ -91,5 +91,10 @@ void gas_serv_deinit(struct hostapd_data
  void gas_serv_req_dpp_processing(struct hostapd_data *hapd,
  				 const u8 *sa, u8 dialog_token,
  				 int prot, struct wpabuf *buf);
@@ -426,11 +461,11 @@ index 1528af4..8be94a3 100644
 +/*CCN67_ANQP*/
  
  #endif /* GAS_SERV_H */
-diff --git a/src/common/ieee802_11_defs.h b/src/common/ieee802_11_defs.h
-index 38f0149..e3d0862 100644
---- a/src/common/ieee802_11_defs.h
-+++ b/src/common/ieee802_11_defs.h
-@@ -2667,4 +2667,19 @@ enum dscp_policy_request_type {
+Index: hostapd/src/common/ieee802_11_defs.h
+===================================================================
+--- hostapd.orig/src/common/ieee802_11_defs.h
++++ hostapd/src/common/ieee802_11_defs.h
+@@ -2672,4 +2672,19 @@ enum dscp_policy_request_type {
  #define WFA_CAPA_QM_DSCP_POLICY BIT(0)
  #define WFA_CAPA_QM_UNSOLIC_DSCP BIT(1)
  

@@ -1,7 +1,7 @@
-Index: hostapd-2022-07-29-b704dc72/hostapd/hostapd_cli.c
+Index: hostapd/hostapd/hostapd_cli.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/hostapd/hostapd_cli.c
-+++ hostapd-2022-07-29-b704dc72/hostapd/hostapd_cli.c
+--- hostapd.orig/hostapd/hostapd_cli.c
++++ hostapd/hostapd/hostapd_cli.c
 @@ -47,6 +47,7 @@ static char ** list_cmd_list(void);
  static void hostapd_cli_receive(int sock, void *eloop_ctx, void *sock_ctx);
  static void update_stations(struct wpa_ctrl *ctrl);
@@ -21,11 +21,18 @@ Index: hostapd-2022-07-29-b704dc72/hostapd/hostapd_cli.c
  
  static void hostapd_cli_action(struct wpa_ctrl *ctrl)
  {
-@@ -2049,8 +2054,9 @@ static void hostapd_cli_action(struct wp
+@@ -2047,10 +2052,16 @@ static void hostapd_cli_action(struct wp
+ 	struct timeval tv;
+ 	char buf[256];
  	size_t len;
++	struct sigaction sa;
  
  	fd = wpa_ctrl_get_fd(ctrl);
-+	signal(SIGTERM, hostapd_cli_handle_signal);
++	os_memset(&sa, 0, sizeof(sa));
++	sa.sa_handler = hostapd_cli_handle_signal;
++	if (sigaction(SIGTERM, &sa, NULL) < 0) {
++		perror("sigaction(SIGTERM) failed");
++	}
  
 -	while (!hostapd_cli_quit) {
 +	while (!hostapd_cli_quit && !action_terminate) {

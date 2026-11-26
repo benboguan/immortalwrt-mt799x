@@ -1,8 +1,8 @@
-diff --git a/src/ap/neighbor_db.c b/src/ap/neighbor_db.c
-index ddb0d65..49b47d5 100644
---- a/src/ap/neighbor_db.c
-+++ b/src/ap/neighbor_db.c
-@@ -89,6 +89,38 @@ int hostapd_neighbor_show(struct hostapd_data *hapd, char *buf, size_t buflen)
+Index: hostapd/src/ap/neighbor_db.c
+===================================================================
+--- hostapd.orig/src/ap/neighbor_db.c
++++ hostapd/src/ap/neighbor_db.c
+@@ -89,6 +89,38 @@ int hostapd_neighbor_show(struct hostapd
  }
  
  
@@ -41,11 +41,11 @@ index ddb0d65..49b47d5 100644
  static void hostapd_neighbor_clear_entry(struct hostapd_neighbor_entry *nr)
  {
  	wpabuf_free(nr->nr);
-diff --git a/src/ap/neighbor_db.h b/src/ap/neighbor_db.h
-index 96d1b4a..2c0b7bd 100644
---- a/src/ap/neighbor_db.h
-+++ b/src/ap/neighbor_db.h
-@@ -24,6 +24,9 @@ int hostapd_neighbor_remove(struct hostapd_data *hapd, const u8 *bssid,
+Index: hostapd/src/ap/neighbor_db.h
+===================================================================
+--- hostapd.orig/src/ap/neighbor_db.h
++++ hostapd/src/ap/neighbor_db.h
+@@ -24,6 +24,9 @@ int hostapd_neighbor_remove(struct hosta
  			    const struct wpa_ssid_value *ssid);
  void hostapd_free_neighbor_db(struct hostapd_data *hapd);
  
@@ -54,11 +54,11 @@ index 96d1b4a..2c0b7bd 100644
 +        size_t buflen);
  void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_buf,
  		                size_t buflen, const int pref);
- #ifdef CONFIG_MBO
-diff --git a/src/ap/wnm_ap.c b/src/ap/wnm_ap.c
-index db46746..1f35f6e 100644
---- a/src/ap/wnm_ap.c
-+++ b/src/ap/wnm_ap.c
+ #endif /* NEIGHBOR_DB_H */
+Index: hostapd/src/ap/wnm_ap.c
+===================================================================
+--- hostapd.orig/src/ap/wnm_ap.c
++++ hostapd/src/ap/wnm_ap.c
 @@ -20,6 +20,7 @@
  #include "ap/wpa_auth.h"
  #include "mbo_ap.h"
@@ -67,7 +67,7 @@ index db46746..1f35f6e 100644
  
  #define MAX_TFS_IE_LEN  1024
  
-@@ -365,67 +366,38 @@ static int ieee802_11_send_bss_trans_mgmt_request(struct hostapd_data *hapd,
+@@ -365,67 +366,39 @@ static int ieee802_11_send_bss_trans_mgm
  						  const u8 *addr,
  						  u8 dialog_token)
  {
@@ -157,12 +157,13 @@ index db46746..1f35f6e 100644
 +	mgmt = os_zalloc(sizeof(*mgmt) + nr_data_len);
 +	if (mgmt == NULL) {
 +		wpa_printf (MSG_ERROR, "Failed to allocate memory for mgmt frame");
++		os_free(nr_data);
  		return -1;
 +	}
  	os_memcpy(mgmt->da, addr, ETH_ALEN);
  	os_memcpy(mgmt->sa, hapd->own_addr, ETH_ALEN);
  	os_memcpy(mgmt->bssid, hapd->own_addr, ETH_ALEN);
-@@ -435,10 +407,18 @@ static int ieee802_11_send_bss_trans_mgmt_request(struct hostapd_data *hapd,
+@@ -435,10 +408,18 @@ static int ieee802_11_send_bss_trans_mgm
  	mgmt->u.action.u.bss_tm_req.action = WNM_BSS_TRANS_MGMT_REQ;
  	mgmt->u.action.u.bss_tm_req.dialog_token = dialog_token;
  	mgmt->u.action.u.bss_tm_req.req_mode = 0;
@@ -181,7 +182,7 @@ index db46746..1f35f6e 100644
  	hapd->openwrt_stats.wnm.bss_transition_request_tx++;
  	wpa_printf(MSG_DEBUG, "WNM: Send BSS Transition Management Request to "
  		   MACSTR " dialog_token=%u req_mode=0x%x disassoc_timer=%u "
-@@ -452,7 +432,6 @@ static int ieee802_11_send_bss_trans_mgmt_request(struct hostapd_data *hapd,
+@@ -452,7 +433,6 @@ static int ieee802_11_send_bss_trans_mgm
  	res = hostapd_drv_send_action(hapd, hapd->iface->freq, 0,
  				      mgmt->da, &mgmt->u.action.category, len);
  	os_free(mgmt);

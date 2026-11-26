@@ -1,0 +1,154 @@
+From: mtk23510 <mtk23510@mediatek.com>
+Date: Fri, 19 Jun 2026 00:00:00 +0530
+Subject: [PATCH] AP MLD: PMKSA cache fallback to partner-link caches on lookup
+
+A non-AP STA may establish its PMK on one link of an AP MLD (e.g. SAE
+on 2.4 GHz as SLO/legacy) and later (re)associate on a different link
+using PMKSA caching. Today the per-link wpa_auth->pmksa on the second
+link is not populated, so wpa_validate_wpa_ie() returns
+WPA_INVALID_PMKID and the AP disassocs with reason 49.
+
+Extend the lookup so that on a per-link cache miss we also search
+every partner link's wpa_auth->pmksa for the same (spa, pmkid). On a
+match we deep-copy the entry into the current link's own cache via a
+new helper pmksa_cache_dup_entry() and store the pointer to that copy
+in sm->pmksa. This avoids holding a cross-link pointer that could be
+freed by the partner's pmksa_cache_auth_deinit() (e.g. on SSID change,
+WBH onboarding, channel switch), preventing a use-after-free.
+
+The helper copies only SAE/PSK-relevant fields (pmkid, pmk, pmk_len,
+expiration, akmp, spa). RADIUS/VLAN/identity/CUI are not applicable
+to MTK MLD SAE/PSK builds and are intentionally omitted.
+
+If no partner has the entry, behaviour is unchanged (WPA_INVALID_PMKID).
+Lookup-side only; the SAE/EAP storage path is untouched. Gated on
+CONFIG_MTK_IEEE80211BE and on hapd->ml_group != NULL.
+
+Signed-off-by: mtk23510 <mtk23510@mediatek.com>
+---
+ src/ap/pmksa_cache_auth.c | 31 +++++++++++++++++++++++++++
+ src/ap/pmksa_cache_auth.h |  5 +++++
+ src/ap/wpa_auth_ie.c      | 45 ++++++++++++++++++++++++++++++++++++
+ 3 files changed, 81 insertions(+)
+
+diff --git a/src/ap/pmksa_cache_auth.c b/src/ap/pmksa_cache_auth.c
+--- a/src/ap/pmksa_cache_auth.c
++++ b/src/ap/pmksa_cache_auth.c
+@@ -534,6 +534,37 @@
+ }
+ 
+ 
++#ifdef CONFIG_MTK_IEEE80211BE
++/* Deep-copy a PMKSA entry from a partner link's cache into this cache.
++ * Only SAE/PSK-relevant fields are copied; RADIUS/VLAN/identity/CUI
++ * are not applicable to MTK MLD SAE/PSK builds. */
++struct rsn_pmksa_cache_entry *
++pmksa_cache_dup_entry(struct rsn_pmksa_cache *pmksa,
++		      const struct rsn_pmksa_cache_entry *old_entry)
++{
++	struct rsn_pmksa_cache_entry *entry;
++
++	if (!pmksa || !old_entry)
++		return NULL;
++
++	entry = os_zalloc(sizeof(*entry));
++	if (entry == NULL)
++		return NULL;
++	os_memcpy(entry->pmkid, old_entry->pmkid, PMKID_LEN);
++	os_memcpy(entry->pmk, old_entry->pmk, old_entry->pmk_len);
++	entry->pmk_len = old_entry->pmk_len;
++	entry->expiration = old_entry->expiration;
++	entry->akmp = old_entry->akmp;
++	os_memcpy(entry->spa, old_entry->spa, ETH_ALEN);
++
++	if (pmksa_cache_auth_add_entry(pmksa, entry) < 0) {
++		bin_clear_free(entry, sizeof(*entry));
++		return NULL;
++	}
++
++	return entry;
++}
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 
+ 
+ /**
+diff --git a/src/ap/pmksa_cache_auth.h b/src/ap/pmksa_cache_auth.h
+--- a/src/ap/pmksa_cache_auth.h
++++ b/src/ap/pmksa_cache_auth.h
+@@ -68,6 +68,11 @@
+ pmksa_cache_add_okc(struct rsn_pmksa_cache *pmksa,
+ 		    const struct rsn_pmksa_cache_entry *old_entry,
+ 		    const u8 *aa, const u8 *pmkid);
++#ifdef CONFIG_MTK_IEEE80211BE
++struct rsn_pmksa_cache_entry *
++pmksa_cache_dup_entry(struct rsn_pmksa_cache *pmksa,
++		      const struct rsn_pmksa_cache_entry *old_entry);
++#endif /* CONFIG_MTK_IEEE80211BE */
+ void pmksa_cache_to_eapol_data(struct hostapd_data *hapd,
+ 			       struct rsn_pmksa_cache_entry *entry,
+ 			       struct eapol_state_machine *eapol);
+diff --git a/src/ap/wpa_auth_ie.c b/src/ap/wpa_auth_ie.c
+--- a/src/ap/wpa_auth_ie.c
++++ b/src/ap/wpa_auth_ie.c
+@@ -18,6 +18,9 @@
+ #include "wpa_auth_ie.h"
+ #include "wpa_auth_i.h"
+ #include "ml/ml_common.h"
++#ifdef CONFIG_MTK_IEEE80211BE
++#include "hostapd.h"
++#endif
+ 
+ #ifdef CONFIG_RSN_TESTING
+ int rsn_testing = 0;
+@@ -1145,6 +1148,48 @@
+ 			}
+ 		}
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++		/* MLD fallback: per-link miss, search partner links and clone
++		 * matching entry into our cache so sm->pmksa is locally owned. */
++		{
++			struct hostapd_data *hapd =
++				(struct hostapd_data *) wpa_auth->cb_ctx;
++
++			if (hapd && hapd->ml_group) {
++				struct wpa_ml_group *grp = hapd->ml_group;
++				struct rsn_pmksa_cache_entry *src = NULL;
++				size_t li;
++
++				for (li = 0; li < grp->ml_link_num; li++) {
++					struct hostapd_data *other =
++						(struct hostapd_data *) grp->links[li].ctx;
++
++					if (!other || other == hapd || !other->wpa_auth)
++						continue;
++					src = pmksa_cache_auth_get(
++						other->wpa_auth->pmksa,
++						ml_auth_spa(sm, sm->addr),
++						&data.pmkid[i * PMKID_LEN]);
++					if (src) {
++						wpa_printf(MSG_INFO,
++							   "WPA: MLD PMKSA fallback hit on partner link_id=%u for "
++							   MACSTR,
++							   grp->links[li].link_id,
++							   MAC2STR(sm->addr));
++						break;
++					}
++				}
++				if (src) {
++					sm->pmksa = pmksa_cache_dup_entry(
++						wpa_auth->pmksa, src);
++					if (sm->pmksa) {
++						pmkid = sm->pmksa->pmkid;
++						break;
++					}
++				}
++			}
++		}
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 	}
+ 	for (i = 0; sm->pmksa == NULL && wpa_auth->conf.okc &&
+ 		     i < data.num_pmkid; i++) {
+--
+2.30.0
+

@@ -1,0 +1,141 @@
+Index: hostapd-2022.07.29~b704dc72/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd-2022.07.29~b704dc72.orig/src/drivers/driver_nl80211.c	2026-05-27 10:08:19.679832432 +0800
++++ hostapd-2022.07.29~b704dc72/src/drivers/driver_nl80211.c	2026-05-27 10:36:21.769978140 +0800
+@@ -1457,7 +1457,7 @@
+ 						ifname, hairpin_mode, brport_state);
+ 
+ 				if (brport_state == BR_STATE_FORWARDING && hairpin_mode == 0)
+-					wpa_supplicant_event(drv->ctx, EVENT_BR_PORT_HAIRPIN_NEEDED, NULL);
++					wpa_supplicant_event(bss->ctx, EVENT_BR_PORT_HAIRPIN_NEEDED, NULL);
+ 
+ 				break;
+ 			}
+@@ -11279,20 +11279,99 @@
+ 	return NULL;
+ }
+ 
++static int nl80211_put_brport_attr(struct nl_msg *msg, enum drv_br_port_attr attr,
++				   unsigned int val)
++{
++	switch (attr) {
++	case DRV_BR_PORT_ATTR_PROXYARP:
++		return nla_put_u8(msg, IFLA_BRPORT_PROXYARP_WIFI, val);
++	case DRV_BR_PORT_ATTR_HAIRPIN_MODE:
++		return nla_put_u8(msg, IFLA_BRPORT_MODE, val ? 1 : 0);
++	default:
++		wpa_printf(MSG_ERROR, "nl80211: Unknown bridge port attribute %d", attr);
++		return -EINVAL;
++	}
++}
+ 
+-static int wpa_driver_br_port_set_attr(void *priv, enum drv_br_port_attr attr,
+-				       unsigned int val)
++
++static int wpa_driver_br_port_set_attr_netlink(struct i802_bss *bss,
++					       enum drv_br_port_attr attr,
++					       unsigned int val)
++{
++	struct wpa_driver_nl80211_data *drv = bss->drv;
++	struct nl_msg *msg;
++	struct nlattr *protinfo;
++	struct ifinfomsg ifm;
++	int ret = -1;
++
++	if (!drv->rtnl_sk) {
++		wpa_printf(MSG_DEBUG, "nl80211: NETLINK_ROUTE socket not available");
++		return -1;
++	}
++
++	if (bss->br_ifindex == 0) {
++		wpa_printf(MSG_DEBUG, "nl80211: Interface not in bridge");
++		return -1;
++	}
++
++	msg = nlmsg_alloc_simple(RTM_SETLINK, NLM_F_REQUEST | NLM_F_ACK);
++	if (!msg)
++		return -ENOMEM;
++
++	os_memset(&ifm, 0, sizeof(ifm));
++	ifm.ifi_family = AF_BRIDGE;
++	ifm.ifi_index = bss->ifindex;
++
++	if (nlmsg_append(msg, &ifm, sizeof(ifm), NLMSG_ALIGNTO) < 0)
++		goto out;
++
++	protinfo = nla_nest_start(msg, IFLA_PROTINFO);
++	if (!protinfo)
++		goto out;
++
++	ret = nl80211_put_brport_attr(msg, attr, val);
++	if (ret < 0)
++		goto out;
++
++	nla_nest_end(msg, protinfo);
++
++	ret = nl_send_auto_complete(drv->rtnl_sk, msg);
++	if (ret < 0) {
++		wpa_printf(MSG_DEBUG, "nl80211: Failed to send netlink message: %s",
++			   nl_geterror(ret));
++		goto out;
++	}
++
++	ret = nl_wait_for_ack(drv->rtnl_sk);
++	if (ret == 0) {
++		wpa_printf(MSG_DEBUG, "nl80211: Bridge port attr %d set to %u via netlink",
++			   attr, val);
++	} else {
++		wpa_printf(MSG_DEBUG, "nl80211: Failed to set bridge port attr %d via netlink: %s",
++			   attr, nl_geterror(ret));
++	}
++
++out:
++	nlmsg_free(msg);
++	return ret;
++}
++
++static int wpa_driver_br_port_set_attr_sysfs(struct i802_bss *bss,
++					enum drv_br_port_attr attr,
++					unsigned int val)
+ {
+-	struct i802_bss *bss = priv;
+ 	char path[128];
+ 	const char *attr_txt;
++	int res;
+ 
+ 	attr_txt = drv_br_port_attr_str(attr);
+ 	if (attr_txt == NULL)
+ 		return -EINVAL;
+ 
+-	os_snprintf(path, sizeof(path), "/sys/class/net/%s/brport/%s",
+-		    bss->ifname, attr_txt);
++	res = os_snprintf(path, sizeof(path), "/sys/class/net/%s/brport/%s",
++			  bss->ifname, attr_txt);
++	if (os_snprintf_error(sizeof(path), res))
++		return -1;
+ 
+ 	if (linux_write_system_file(path, val))
+ 		return -1;
+@@ -11300,6 +11379,22 @@
+ 	return 0;
+ }
+ 
++static int wpa_driver_br_port_set_attr(void *priv, enum drv_br_port_attr attr,
++					unsigned int val)
++{
++	struct i802_bss *bss = priv;
++	int ret;
++
++	ret = wpa_driver_br_port_set_attr_netlink(bss, attr, val);
++	if (ret == 0) {
++		wpa_printf(MSG_DEBUG, "nl80211: Bridge port attr set via netlink");
++		return 0;
++	}
++
++	wpa_printf(MSG_DEBUG, "nl80211: Fallback to sysfs for bridge port attr");
++	return wpa_driver_br_port_set_attr_sysfs(bss, attr, val);
++}
++
+ 
+ static const char * drv_br_net_param_str(enum drv_br_net_param param)
+ {

@@ -1,7 +1,7 @@
-Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+Index: hostapd/src/ap/hostapd.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+--- hostapd.orig/src/ap/hostapd.h
++++ hostapd/src/ap/hostapd.h
 @@ -205,7 +205,8 @@ struct hostapd_data {
  	unsigned int reenable_beacon:1;
  
@@ -12,19 +12,26 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
  	/* OpenWrt specific statistics */
  	struct hostapd_openwrt_stats openwrt_stats;
  
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+Index: hostapd/src/ap/wpa_auth_ft.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ft.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
-@@ -3930,6 +3930,7 @@ int wpa_ft_validate_reassoc(struct wpa_s
+--- hostapd.orig/src/ap/wpa_auth_ft.c
++++ hostapd/src/ap/wpa_auth_ft.c
+@@ -3932,12 +3932,14 @@ int wpa_ft_validate_reassoc(struct wpa_s
  	u8 fte_elem_count;
  	int rsnxe_used;
  	struct wpa_auth_config *conf;
-+	struct hostapd_data *hapd = sm->wpa_auth->cb_ctx;
++	struct hostapd_data *hapd;
  #ifdef CONFIG_MTK_IEEE80211BE
  	u8 setup_link_id;
  #endif
-@@ -4087,7 +4088,25 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ 
+ 	if (sm == NULL)
+ 		return WLAN_STATUS_UNSPECIFIED_FAILURE;
++	hapd = sm->wpa_auth->cb_ctx;
+ 
+ 	conf = &sm->wpa_auth->conf;
+ 	use_sha384 = wpa_key_mgmt_sha384(sm->wpa_key_mgmt);
+@@ -4089,7 +4091,25 @@ int wpa_ft_validate_reassoc(struct wpa_s
  		setup_link_id = ml_get_link_id(sm);
  #endif
  
@@ -51,7 +58,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
  		       parse.mdie - 2, parse.mdie_len + 2,
  		       parse.ftie - 2, parse.ftie_len + 2,
  		       parse.rsn - 2, parse.rsn_len + 2,
-@@ -4100,8 +4119,9 @@ int wpa_ft_validate_reassoc(struct wpa_s
+@@ -4102,8 +4122,9 @@ int wpa_ft_validate_reassoc(struct wpa_s
  			   setup_link_id, sm->addr, 0, NULL,
  #endif
  		       mic) < 0) {
@@ -63,11 +70,11 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
  	}
  
  	if (os_memcmp_const(mic, fte_mic, mic_len) != 0) {
-Index: hostapd-2022-07-29-b704dc72/src/drivers/mediatek_driver_cmd_nl80211.c
+Index: hostapd/src/drivers/mediatek_driver_cmd_nl80211.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/drivers/mediatek_driver_cmd_nl80211.c
-+++ hostapd-2022-07-29-b704dc72/src/drivers/mediatek_driver_cmd_nl80211.c
-@@ -342,6 +342,16 @@ void mtk_nl80211_rxt2lm_stop_disassoc_ti
+--- hostapd.orig/src/drivers/mediatek_driver_cmd_nl80211.c
++++ hostapd/src/drivers/mediatek_driver_cmd_nl80211.c
+@@ -354,6 +354,16 @@ void mtk_nl80211_rxt2lm_stop_disassoc_ti
  	}
  }
  
@@ -84,7 +91,7 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/mediatek_driver_cmd_nl80211.c
  void nl80211_vendor_event_mtk(struct wpa_driver_nl80211_data *drv, struct i802_bss *bss,
                    u32 subcmd, u8 *data, size_t len)
  {
-@@ -364,6 +374,11 @@ void nl80211_vendor_event_mtk(struct wpa
+@@ -376,6 +386,11 @@ void nl80211_vendor_event_mtk(struct wpa
  		"nl80211: MTK_NL80211_VENDOR_EVENT_RX_T2LM_STOP_DISASSOC_TIMER event %u", subcmd);
  		mtk_nl80211_rxt2lm_stop_disassoc_timer_event(drv, data, len);
  		break;

@@ -1,8 +1,8 @@
-Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
+Index: hostapd/src/ap/wnm_ap.c
 ===================================================================
---- hostapd-2022-06-02-4383528e.orig/src/ap/wnm_ap.c
-+++ hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
-@@ -451,8 +451,8 @@ static void ieee802_11_rx_bss_trans_mgmt
+--- hostapd.orig/src/ap/wnm_ap.c
++++ hostapd/src/ap/wnm_ap.c
+@@ -489,8 +489,8 @@ static void ieee802_11_rx_bss_trans_mgmt
  			wpa_snprintf_hex(hex, hex_len, pos, end - pos);
  	}
  	wpa_msg(hapd->msg_ctx, MSG_INFO,
@@ -13,7 +13,7 @@ Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
  	os_free(hex);
  
  	if (!hostapd_ubus_notify_bss_transition_query(hapd, addr, dialog_token, reason, pos, end - pos))
-@@ -481,6 +481,8 @@ static void ieee802_11_rx_bss_trans_mgmt
+@@ -519,6 +519,8 @@ static void ieee802_11_rx_bss_trans_mgmt
  	const u8 *pos, *end, *target_bssid = NULL;
  	int enabled = hapd->conf->bss_transition;
  	struct sta_info *sta;
@@ -22,7 +22,7 @@ Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
  
  #ifdef CONFIG_MBO
  	if (hapd->conf->mbo_enabled)
-@@ -526,24 +528,45 @@ static void ieee802_11_rx_bss_trans_mgmt
+@@ -564,24 +566,45 @@ static void ieee802_11_rx_bss_trans_mgmt
  			return;
  		}
  		target_bssid = pos;
@@ -75,7 +75,7 @@ Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
  
  	hostapd_ubus_notify_bss_transition_response(hapd, sta->addr, dialog_token,
  						    status_code, bss_termination_delay,
-@@ -584,6 +607,10 @@ static void ieee802_11_rx_wnm_notificati
+@@ -622,6 +645,10 @@ static void ieee802_11_rx_wnm_notificati
  					       size_t len)
  {
  	u8 dialog_token, type;
@@ -86,11 +86,10 @@ Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
  
  	if (len < 2)
  		return;
-@@ -597,7 +624,18 @@ static void ieee802_11_rx_wnm_notificati
- 		   MAC2STR(addr), dialog_token, type);
+@@ -636,6 +663,17 @@ static void ieee802_11_rx_wnm_notificati
  	wpa_hexdump(MSG_MSGDUMP, "WNM: Notification Request subelements",
  		    buf, len);
-
+ 
 +	payload = buf - 2;
 +	hex_len = 2 * (end - payload) + 1;
 +	if (hex_len > 1) {
@@ -105,11 +104,11 @@ Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
  	switch (type) {
  	case WNM_NOTIF_TYPE_BEACON_PROTECTION_FAILURE:
  		wnm_beacon_protection_failure(hapd, addr);
-Index: hostapd-2022-06-02-4383528e/wpa_supplicant/wnm_sta.c
+Index: hostapd/wpa_supplicant/wnm_sta.c
 ===================================================================
---- hostapd-2022-06-02-4383528e.orig/wpa_supplicant/wnm_sta.c
-+++ hostapd-2022-06-02-4383528e/wpa_supplicant/wnm_sta.c
-@@ -1806,6 +1806,9 @@ static void ieee802_11_rx_wnm_notif_req(
+--- hostapd.orig/wpa_supplicant/wnm_sta.c
++++ hostapd/wpa_supplicant/wnm_sta.c
+@@ -1807,6 +1807,9 @@ static void ieee802_11_rx_wnm_notif_req(
  {
  	const u8 *pos, *end;
  	u8 dialog_token, type;
@@ -119,7 +118,7 @@ Index: hostapd-2022-06-02-4383528e/wpa_supplicant/wnm_sta.c
  
  	/* Dialog Token [1] | Type [1] | Subelements */
  
-@@ -1822,6 +1825,17 @@ static void ieee802_11_rx_wnm_notif_req(
+@@ -1823,6 +1826,17 @@ static void ieee802_11_rx_wnm_notif_req(
  	wpa_hexdump(MSG_DEBUG, "WNM-Notification Request subelements",
  		    pos, end - pos);
  
@@ -137,11 +136,11 @@ Index: hostapd-2022-06-02-4383528e/wpa_supplicant/wnm_sta.c
  	if (wpa_s->wpa_state != WPA_COMPLETED ||
  	    os_memcmp(sa, wpa_s->bssid, ETH_ALEN) != 0) {
  		wpa_dbg(wpa_s, MSG_DEBUG, "WNM: WNM-Notification frame not "
-Index: hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
+Index: hostapd/src/common/wpa_ctrl.h
 ===================================================================
---- hostapd-2022-06-02-4383528e.orig/src/common/wpa_ctrl.h
-+++ hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
-@@ -301,6 +301,8 @@ extern "C" {
+--- hostapd.orig/src/common/wpa_ctrl.h
++++ hostapd/src/common/wpa_ctrl.h
+@@ -310,6 +310,8 @@ extern "C" {
  /* parameters: <addr> <result> */
  #define ANQP_QUERY_DONE "ANQP-QUERY-DONE "
  
@@ -150,7 +149,7 @@ Index: hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
  #define RX_ANQP "RX-ANQP "
  #define RX_HS20_ANQP "RX-HS20-ANQP "
  #define RX_HS20_ANQP_ICON "RX-HS20-ANQP-ICON "
-@@ -369,6 +371,9 @@ extern "C" {
+@@ -379,6 +381,9 @@ extern "C" {
  /* BSS Transition Management Response frame received */
  #define BSS_TM_RESP "BSS-TM-RESP "
  
@@ -160,7 +159,7 @@ Index: hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
  /* Collocated Interference Request frame received;
   * parameters: <dialog token> <automatic report enabled> <report timeout> */
  #define COLOC_INTF_REQ "COLOC-INTF-REQ "
-@@ -386,6 +391,8 @@ extern "C" {
+@@ -396,6 +401,8 @@ extern "C" {
  #define BEACON_REQ_TX_STATUS "BEACON-REQ-TX-STATUS "
  /* parameters: <STA address> <dialog token> <report mode> <beacon report> */
  #define BEACON_RESP_RX "BEACON-RESP-RX "
@@ -169,26 +168,32 @@ Index: hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
  
  /* PMKSA cache entry added; parameters: <BSSID> <network_id> */
  #define PMKSA_CACHE_ADDED "PMKSA-CACHE-ADDED "
-Index: hostapd-2022-06-02-4383528e/src/ap/rrm.c
+Index: hostapd/src/ap/rrm.c
 ===================================================================
---- hostapd-2022-06-02-4383528e.orig/src/ap/rrm.c
-+++ hostapd-2022-06-02-4383528e/src/ap/rrm.c
-@@ -101,6 +101,14 @@ static void hostapd_handle_radio_msmt_re
+--- hostapd.orig/src/ap/rrm.c
++++ hostapd/src/ap/rrm.c
+@@ -100,7 +100,19 @@ static void hostapd_handle_radio_msmt_re
+ {
  	const struct ieee80211_mgmt *mgmt = (const struct ieee80211_mgmt *) buf;
  	const u8 *pos, *ie, *end;
- 	u8 token, rep_mode;
+-	u8 token, rep_mode;
++	u8 token, rep_mode = 0;
 +	u8 ie_len;
 +	u8 *payload = NULL;
 +	size_t payload_len = 0;
 +
 +	if (len > 0) {
 +		payload = os_malloc((len * 2) + 1);
++		if (!payload) {
++			wpa_printf(MSG_ERROR, "%s: malloc failed", __func__);
++			return;
++		}
 +		os_memset(payload, 0, (len * 2) + 1 );
 +	}
  
  	end = buf + len;
  	token = mgmt->u.action.u.rrm.dialog_token;
-@@ -126,6 +134,11 @@ static void hostapd_handle_radio_msmt_re
+@@ -126,6 +138,11 @@ static void hostapd_handle_radio_msmt_re
  		case MEASURE_TYPE_BEACON:
  			hostapd_handle_beacon_report(hapd, mgmt->sa, token,
  						     rep_mode, ie + 2, ie[1]);
@@ -200,7 +205,7 @@ Index: hostapd-2022-06-02-4383528e/src/ap/rrm.c
  			break;
  		default:
  			wpa_printf(MSG_DEBUG,
-@@ -136,6 +149,12 @@ static void hostapd_handle_radio_msmt_re
+@@ -136,6 +153,12 @@ static void hostapd_handle_radio_msmt_re
  
  		pos = ie + ie[1] + 2;
  	}
@@ -213,11 +218,11 @@ Index: hostapd-2022-06-02-4383528e/src/ap/rrm.c
  }
  
  
-Index: hostapd-2022-06-02-4383528e/src/ap/gas_serv.c
+Index: hostapd/src/ap/gas_serv.c
 ===================================================================
---- hostapd-2022-06-02-4383528e.orig/src/ap/gas_serv.c
-+++ hostapd-2022-06-02-4383528e/src/ap/gas_serv.c
-@@ -1605,6 +1605,13 @@ static void gas_serv_rx_gas_initial_req(
+--- hostapd.orig/src/ap/gas_serv.c
++++ hostapd/src/ap/gas_serv.c
+@@ -1645,6 +1645,13 @@ static void gas_serv_rx_gas_initial_req(
  #ifdef CONFIG_DPP
  	int dpp = 0;
  #endif /* CONFIG_DPP */
@@ -231,7 +236,7 @@ Index: hostapd-2022-06-02-4383528e/src/ap/gas_serv.c
  
  	if (len < 1 + 2)
  		return;
-@@ -1668,6 +1675,16 @@ static void gas_serv_rx_gas_initial_req(
+@@ -1708,6 +1715,16 @@ static void gas_serv_rx_gas_initial_req(
  							 wpabuf_len(buf));
  		wpabuf_free(buf);
  		return;

@@ -1,0 +1,98 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ft.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+@@ -3334,7 +3334,7 @@ u8 * wpa_sm_write_assoc_resp_ies(struct
+ #endif
+ 
+ 	if (auth_alg == WLAN_AUTH_FT &&
+-	    wpa_ft_mic(hapd->conf->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 6,
++	    wpa_ft_mic(hapd->conf->wpa_key_mgmt, sm->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 6,
+ 		       mdie, mdie_len, ftie, ftie_len,
+ 		       rsnie, rsnie_len,
+ 		       ric_start, ric_start ? pos - ric_start : 0,
+@@ -4130,7 +4130,7 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ #endif
+ 
+ 	if (hapd && sm->wpa_auth->conf.ft_over_ds && hapd->update_sta_link_mac) {
+-		if (wpa_ft_mic(conf->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 5,
++		if (wpa_ft_mic(conf->wpa_key_mgmt, sm->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 5,
+ 		       parse.mdie - 2, parse.mdie_len + 2,
+ 		       parse.ftie - 2, parse.ftie_len + 2,
+ 		       parse.rsn - 2, parse.rsn_len + 2,
+@@ -4147,7 +4147,7 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ 			return WLAN_STATUS_UNSPECIFIED_FAILURE;
+ 		}
+ 	} else {
+-		if (wpa_ft_mic(conf->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 5,
++		if (wpa_ft_mic(conf->wpa_key_mgmt, sm->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 5,
+ 		       parse.mdie - 2, parse.mdie_len + 2,
+ 		       parse.ftie - 2, parse.ftie_len + 2,
+ 		       parse.rsn - 2, parse.rsn_len + 2,
+Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
++++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+@@ -913,7 +913,7 @@ int each_link_rsne_equal(const u8 **link
+ }
+ 
+ 
+-int wpa_ft_mic(int key_mgmt, const u8 *kck, size_t kck_len, const u8 *sta_addr,
++int wpa_ft_mic(int key_mgmt, int peer_key_mgmt, const u8 *kck, size_t kck_len, const u8 *sta_addr,
+ 	       const u8 *ap_addr, u8 transaction_seqnum,
+ 	       const u8 *mdie, size_t mdie_len,
+ 	       const u8 *ftie, size_t ftie_len,
+@@ -1226,9 +1226,15 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 	if (kck_len == 16 && (key_mgmt & WPA_KEY_MGMT_FT_SAE_EXT_KEY)) {
+ 		u8 hash[SHA256_MAC_LEN];
+ 
+-		if (hmac_sha256_vector(kck, kck_len, num_elem, addr, len, hash))
+-			return -1;
+-		os_memcpy(mic, hash, 16);
++		if (peer_key_mgmt & WPA_KEY_MGMT_FT_SAE) {
++			if (omac1_aes_128_vector(kck, num_elem, addr, len, mic))
++				return -1;
++		} else {
++			if (hmac_sha256_vector(kck, kck_len, num_elem, addr, len, hash))
++				return -1;
++			os_memcpy(mic, hash, 16);
++		}
++
+ 		res = 0;
+ 	}
+ 	if (kck_len == 16 && !(key_mgmt & WPA_KEY_MGMT_FT_SAE_EXT_KEY) &&
+Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.h
++++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
+@@ -462,7 +462,7 @@ int fils_key_auth_sk(const u8 *ick, size
+ 		     size_t *key_auth_len);
+ 
+ #ifdef CONFIG_IEEE80211R
+-int wpa_ft_mic(int key_mgmt, const u8 *kck, size_t kck_len, const u8 *sta_addr,
++int wpa_ft_mic(int key_mgmt, int peer_key_mgmt, const u8 *kck, size_t kck_len, const u8 *sta_addr,
+ 	       const u8 *ap_addr, u8 transaction_seqnum,
+ 	       const u8 *mdie, size_t mdie_len,
+ 	       const u8 *ftie, size_t ftie_len,
+Index: hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ft.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/rsn_supp/wpa_ft.c
++++ hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ft.c
+@@ -431,7 +431,7 @@ static u8 * wpa_ft_gen_req_ies(struct wp
+ 		*elem_count = 3 + ieee802_11_ie_count(ric_ies, ric_ies_len);
+ 		if (rsnxe_len)
+ 			*elem_count += 1;
+-		if (wpa_ft_mic(0, kck, kck_len, ml_sm_spa(sm, sm->own_addr), ml_sm_aa(sm, target_ap), 5,
++		if (wpa_ft_mic(0, 0, kck, kck_len, ml_sm_spa(sm, sm->own_addr), ml_sm_aa(sm, target_ap), 5,
+ 			       ((u8 *) mdie) - 2, 2 + sizeof(*mdie),
+ 			       ftie_pos, 2 + *ftie_len,
+ 			       (u8 *) rsnie, 2 + rsnie->len, ric_ies,
+@@ -1131,7 +1131,7 @@ int wpa_ft_validate_reassoc_resp(struct
+ 		kck_len = sm->ptk.kck_len;
+ 	}
+ 
+-	if (wpa_ft_mic(0, kck, kck_len, ml_sm_spa(sm, sm->own_addr),
++	if (wpa_ft_mic(0, 0, kck, kck_len, ml_sm_spa(sm, sm->own_addr),
+ 		       ml_sm_aa(sm, src_addr), 6,
+ 		       parse.mdie - 2, parse.mdie_len + 2,
+ 		       parse.ftie - 2, parse.ftie_len + 2,

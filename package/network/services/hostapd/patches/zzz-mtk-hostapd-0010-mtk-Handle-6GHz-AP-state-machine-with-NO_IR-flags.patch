@@ -1,0 +1,560 @@
+From c56a40a46666379ae2e95b9cfdb61cdea5cfc2c2 Mon Sep 17 00:00:00 2001
+From: Pooventhiran G <quic_pooventh@quicinc.com>
+Date: Tue, 14 Mar 2023 11:35:41 +0530
+Subject: [PATCH] AP: Handle 6 GHz AP state machine with NO_IR flags
+
+AP cannot come up in channels that are marked as NO_IR. If AP moves to
+HAPD_IFACE_DISABLED state, it will deinitialize the nl80211 driver
+interface and sockets.
+
+Hence, introduce a new state called HAPD_IFACE_NO_IR, for 6 GHz APs to
+handle NO_IR scenarios, such as AFC, where the channels not allowed by
+AFC will have HOSTAPD_CHAN_NO_IR flag set. In this state, AP is still
+kept in a non-operational state (stopped) without deinitializing the
+nl80211 driver interface. wiphy reg change event can then update the
+channels and bring up the AP in a valid channel.
+
+Signed-off-by: Pooventhiran G <quic_pooventh@quicinc.com>
+---
+ src/ap/acs.c          |  10 ++-
+ src/ap/ap_drv_ops.c   |  21 +++++-
+ src/ap/hostapd.c      | 154 +++++++++++++++++++++++++++++++++++++++++-
+ src/ap/hostapd.h      |   5 ++
+ src/ap/hw_features.c  |  73 +++++++++++++++-----
+ src/common/wpa_ctrl.h |   1 +
+ 6 files changed, 242 insertions(+), 22 deletions(-)
+
+diff --git a/src/ap/acs.c b/src/ap/acs.c
+index 1181c7d58e..877d7d40ad 100644
+--- a/src/ap/acs.c
++++ b/src/ap/acs.c
+@@ -1353,12 +1353,20 @@ static int acs_request_scan(struct hostapd_iface *iface)
+ 
+ enum hostapd_chan_status acs_init(struct hostapd_iface *iface)
+ {
++	int err;
++
+ 	wpa_printf(MSG_INFO, "ACS: Automatic channel selection started, this may take a bit");
+ 
+ 	if (iface->drv_flags & WPA_DRIVER_FLAGS_ACS_OFFLOAD) {
+ 		wpa_printf(MSG_INFO, "ACS: Offloading to driver");
+-		if (hostapd_drv_do_acs(iface->bss[0]))
++
++		err = hostapd_drv_do_acs(iface->bss[0]);
++		if (err) {
++			if (err == 1)
++				return HOSTAPD_CHAN_INVALID_NO_IR;
+ 			return HOSTAPD_CHAN_INVALID;
++		}
++
+ 		return HOSTAPD_CHAN_ACS;
+ 	}
+ 
+diff --git a/src/ap/ap_drv_ops.c b/src/ap/ap_drv_ops.c
+index aa4dbe9eba..844896e8bb 100644
+--- a/src/ap/ap_drv_ops.c
++++ b/src/ap/ap_drv_ops.c
+@@ -646,8 +646,8 @@ struct hostapd_hw_modes *
+ hostapd_get_hw_feature_data(struct hostapd_data *hapd, u16 *num_modes,
+ 			    u16 *flags, u8 *dfs_domain)
+ {
+-	if (hapd->driver == NULL ||
+-	    hapd->driver->get_hw_feature_data == NULL)
++	if (!hapd->driver || !hapd->driver->get_hw_feature_data ||
++	    !hapd->drv_priv)
+ 		return NULL;
+ 	return hapd->driver->get_hw_feature_data(hapd->drv_priv, num_modes,
+ 						 flags, dfs_domain);
+@@ -889,6 +889,7 @@ void hostapd_get_hw_mode_any_channels(struct hostapd_data *hapd,
+ 				      int **freq_list)
+ {
+ 	int i;
++	bool is_no_ir = false;
+ 
+ 	for (i = 0; i < mode->num_channels; i++) {
+ 		struct hostapd_channel_data *chan = &mode->channels[i];
+@@ -917,7 +918,12 @@ void hostapd_get_hw_mode_any_channels(struct hostapd_data *hapd,
+ 		      (chan->flag & HOSTAPD_CHAN_RADAR)) &&
+ 		    !(chan->max_tx_power < hapd->iface->conf->min_tx_power))
+ 			int_array_add_unique(freq_list, chan->freq);
++		else if ((chan->flag & HOSTAPD_CHAN_NO_IR) &&
++			 is_6ghz_freq(chan->freq))
++			is_no_ir = true;
+ 	}
++
++	hapd->iface->is_no_ir = is_no_ir;
+ }
+ 
+ 
+@@ -935,6 +941,11 @@ void hostapd_get_ext_capa(struct hostapd_iface *iface)
+ }
+ 
+ 
++/**
++ * hostapd_drv_do_acs - Start automatic channel selection
++ * @hapd: BSS data for the device initiating ACS
++ * Returns: 0 on success, -1 on failure, 1 on failure due to NO_IR (AFC)
++ */
+ int hostapd_drv_do_acs(struct hostapd_data *hapd)
+ {
+ 	struct drv_acs_params params;
+@@ -972,6 +983,12 @@ int hostapd_drv_do_acs(struct hostapd_data *hapd)
+ 						 false, &freq_list);
+ 	}
+ 
++	if (!freq_list && hapd->iface->is_no_ir) {
++		wpa_printf(MSG_ERROR,
++			   "NO_IR: Interface freq_list is empty. Failing do_acs.");
++		return 1;
++	}
++
+ 	params.freq_list = freq_list;
+ 	params.edmg_enabled = hapd->iface->conf->enable_edmg;
+ 
+diff --git a/src/ap/hostapd.c b/src/ap/hostapd.c
+index 112e6fad31..febec0ec5f 100644
+--- a/src/ap/hostapd.c
++++ b/src/ap/hostapd.c
+@@ -1607,6 +1607,125 @@ static int start_ctrl_iface(struct hostapd_iface *iface)
+ }
+ 
+ 
++/* When NO_IR flag is set and AP is stopped, clean up BSS parameters without
++ * deinitializing the driver and the control interfaces. A subsequent
++ * REG_CHANGE event can bring the AP back up.
++ */
++static void hostapd_no_ir_cleanup(struct hostapd_data *bss)
++{
++	hostapd_bss_deinit_no_free(bss);
++	hostapd_free_hapd_data(bss);
++	hostapd_cleanup_iface_partial(bss->iface);
++}
++
++
++static int hostapd_no_ir_channel_list_updated(struct hostapd_iface *iface,
++					      void *ctx)
++{
++	bool all_no_ir, is_6ghz;
++	int i, j;
++	struct hostapd_hw_modes *mode = NULL;
++
++	if (hostapd_get_hw_features(iface))
++		return 0;
++
++	all_no_ir = true;
++	is_6ghz = false;
++
++	for (i = 0; i < iface->num_hw_features; i++) {
++		mode = &iface->hw_features[i];
++
++		if (mode->mode == iface->conf->hw_mode) {
++			if (iface->freq > 0 &&
++			    !hw_mode_get_channel(mode, iface->freq, NULL)) {
++				mode = NULL;
++				continue;
++			}
++
++			for (j = 0; j < mode->num_channels; j++) {
++				if (!(mode->channels[j].flag &
++				      HOSTAPD_CHAN_NO_IR))
++					all_no_ir = false;
++
++				if (is_6ghz_freq(mode->channels[j].freq))
++					is_6ghz = true;
++			}
++			break;
++		}
++	}
++
++	if (!mode || !is_6ghz)
++		return 0;
++	iface->current_mode = mode;
++
++	if (iface->state == HAPD_IFACE_ENABLED) {
++		if (!all_no_ir) {
++			struct hostapd_channel_data *chan;
++
++			chan = hw_get_channel_freq(iface->current_mode->mode,
++						   iface->freq, NULL,
++						   iface->hw_features,
++						   iface->num_hw_features);
++
++			if (!chan) {
++				wpa_printf(MSG_ERROR,
++					   "NO_IR: Could not derive chan from freq");
++				return 0;
++			}
++
++			if (!(chan->flag & HOSTAPD_CHAN_NO_IR))
++				return 0;
++			wpa_printf(MSG_DEBUG,
++				   "NO_IR: The current channel has NO_IR flag now, stop AP.");
++		} else {
++			wpa_printf(MSG_DEBUG,
++				   "NO_IR: All chan in new chanlist are NO_IR, stop AP.");
++		}
++
++		hostapd_set_state(iface, HAPD_IFACE_NO_IR);
++		iface->is_no_ir = true;
++		hostapd_drv_stop_ap(iface->bss[0]);
++		hostapd_no_ir_cleanup(iface->bss[0]);
++		wpa_msg(iface->bss[0]->msg_ctx, MSG_INFO, AP_EVENT_NO_IR);
++	} else if (iface->state == HAPD_IFACE_NO_IR) {
++		if (all_no_ir) {
++			wpa_printf(MSG_DEBUG,
++				   "NO_IR: AP in NO_IR and all chan in the new chanlist are NO_IR. Ignore");
++			return 0;
++		}
++
++		if (!iface->conf->acs) {
++			struct hostapd_channel_data *chan;
++
++			chan = hw_get_channel_freq(iface->current_mode->mode,
++						   iface->freq, NULL,
++						   iface->hw_features,
++						   iface->num_hw_features);
++			if (!chan) {
++				wpa_printf(MSG_ERROR,
++					   "NO_IR: Could not derive chan from freq");
++				return 0;
++			}
++
++			/* If the last operating channel is NO_IR, trigger ACS.
++			 */
++			if (chan->flag & HOSTAPD_CHAN_NO_IR) {
++				iface->freq = 0;
++				iface->conf->channel = 0;
++				if (acs_init(iface) != HOSTAPD_CHAN_ACS)
++					wpa_printf(MSG_ERROR,
++						   "NO_IR: Could not start ACS");
++				return 0;
++			}
++		}
++
++		setup_interface2(iface);
++	}
++
++	return 0;
++}
++
++
+ static void channel_list_update_timeout(void *eloop_ctx, void *timeout_ctx)
+ {
+ 	struct hostapd_iface *iface = eloop_ctx;
+@@ -1627,6 +1746,13 @@ static void channel_list_update_timeout(void *eloop_ctx, void *timeout_ctx)
+ 
+ void hostapd_channel_list_updated(struct hostapd_iface *iface, int initiator)
+ {
++	if (initiator == REGDOM_SET_BY_DRIVER) {
++		hostapd_for_each_interface(iface->interfaces,
++					   hostapd_no_ir_channel_list_updated,
++					   NULL);
++		return;
++	}
++
+ 	if (!iface->wait_channel_update || initiator != REGDOM_SET_BY_USER)
+ 		return;
+ 
+@@ -1776,6 +1902,7 @@ static void hostapd_set_6ghz_sec_chan(struct hostapd_iface *iface)
+ static int setup_interface2(struct hostapd_iface *iface)
+ {
+ 	iface->wait_channel_update = 0;
++	iface->is_no_ir = false;
+ 
+ 	if (hostapd_get_hw_features(iface)) {
+ 		/* Not all drivers support this yet, so continue without hw
+@@ -1831,6 +1958,14 @@ static int setup_interface2(struct hostapd_iface *iface)
+ 	return hostapd_setup_interface_complete(iface, 0);
+ 
+ fail:
++	if (iface->is_no_ir) {
++		/* If AP is in NO_IR state, it can be reenabled by the driver
++		 * regulatory update and EVENT_CHANNEL_LIST_CHANGED. */
++		hostapd_set_state(iface, HAPD_IFACE_NO_IR);
++		wpa_msg(iface->bss[0]->msg_ctx, MSG_INFO, AP_EVENT_NO_IR);
++		return 0;
++	}
++
+ 	hostapd_set_state(iface, HAPD_IFACE_DISABLED);
+ 	wpa_msg(iface->bss[0]->msg_ctx, MSG_INFO, AP_EVENT_DISABLED);
+ 	if (iface->interfaces && iface->interfaces->terminate_on_error)
+@@ -2321,6 +2456,13 @@ static int hostapd_setup_interface_complete_sync(struct hostapd_iface *iface,
+ fail:
+ 	wpa_printf(MSG_ERROR, "Interface initialization failed");
+ 	hostapd_ubus_free_iface(iface);
++
++	if (iface->is_no_ir) {
++		hostapd_set_state(iface, HAPD_IFACE_NO_IR);
++		wpa_msg(hapd->msg_ctx, MSG_INFO, AP_EVENT_NO_IR);
++		return 0;
++	}
++
+ 	hostapd_set_state(iface, HAPD_IFACE_DISABLED);
+ 	wpa_msg(hapd->msg_ctx, MSG_INFO, AP_EVENT_DISABLED);
+ #ifdef CONFIG_FST
+@@ -2366,8 +2508,15 @@ int hostapd_setup_interface_complete(struct hostapd_iface *iface, int err)
+ 
+ 	if (err) {
+ 		wpa_printf(MSG_ERROR, "Interface initialization failed");
+-		hostapd_set_state(iface, HAPD_IFACE_DISABLED);
+ 		iface->need_to_start_in_sync = 0;
++
++		if (iface->is_no_ir) {
++			hostapd_set_state(iface, HAPD_IFACE_NO_IR);
++			wpa_msg(hapd->msg_ctx, MSG_INFO, AP_EVENT_NO_IR);
++			return 0;
++		}
++
++		hostapd_set_state(iface, HAPD_IFACE_DISABLED);
+ 		wpa_msg(hapd->msg_ctx, MSG_INFO, AP_EVENT_DISABLED);
+ 		if (interfaces && interfaces->terminate_on_error)
+ 			eloop_terminate();
+@@ -2536,6 +2685,7 @@ void hostapd_interface_deinit(struct hostapd_iface *iface)
+ 
+ 	eloop_cancel_timeout(channel_list_update_timeout, iface, NULL);
+ 	iface->wait_channel_update = 0;
++	iface->is_no_ir = false;
+ 
+ #ifdef CONFIG_FST
+ 	if (iface->fst) {
+@@ -3421,6 +3571,8 @@ const char * hostapd_state_text(enum hostapd_iface_state s)
+ 		return "DFS";
+ 	case HAPD_IFACE_ENABLED:
+ 		return "ENABLED";
++	case HAPD_IFACE_NO_IR:
++		return "NO_IR";
+ 	}
+ 
+ 	return "UNKNOWN";
+diff --git a/src/ap/hostapd.h b/src/ap/hostapd.h
+index 5e16bc389b..0dd043da87 100644
+--- a/src/ap/hostapd.h
++++ b/src/ap/hostapd.h
+@@ -99,6 +99,7 @@ enum hostapd_chan_status {
+ 	HOSTAPD_CHAN_VALID = 0, /* channel is ready */
+ 	HOSTAPD_CHAN_INVALID = 1, /* no usable channel found */
+ 	HOSTAPD_CHAN_ACS = 2, /* ACS work being performed */
++	HOSTAPD_CHAN_INVALID_NO_IR = 3, /* channel invalid due to AFC NO IR */
+ };
+ 
+ struct hostapd_probereq_cb {
+@@ -491,6 +492,7 @@ struct hostapd_iface {
+ 		HAPD_IFACE_ACS,
+ 		HAPD_IFACE_HT_SCAN,
+ 		HAPD_IFACE_DFS,
++		HAPD_IFACE_NO_IR,
+ 		HAPD_IFACE_ENABLED
+ 	} state;
+ 
+@@ -650,6 +652,9 @@ struct hostapd_iface {
+ 	int (*enable_iface_cb)(struct hostapd_iface *iface);
+ 	int (*disable_iface_cb)(struct hostapd_iface *iface);
+ 	char **bss_config_fname;
++
++	/* Configured freq of interface is NO_IR */
++	bool is_no_ir;
+ };
+ 
+ /* hostapd.c */
+diff --git a/src/ap/hw_features.c b/src/ap/hw_features.c
+index 24e15bc2be..0926a760fa 100644
+--- a/src/ap/hw_features.c
++++ b/src/ap/hw_features.c
+@@ -833,6 +833,11 @@ int hostapd_check_he_6ghz_capab(struct hostapd_iface *iface)
+ }
+ 
+ 
++/* Returns:
++ * 1 = usable
++ * 0 = not usable
++ * -1 = not currently usable due to 6 GHz NO-IR
++ */
+ static int hostapd_is_usable_chan(struct hostapd_iface *iface,
+ 				  int frequency, int primary)
+ {
+@@ -856,6 +861,10 @@ static int hostapd_is_usable_chan(struct hostapd_iface *iface,
+ 		   chan->flag,
+ 		   chan->flag & HOSTAPD_CHAN_NO_IR ? " NO-IR" : "",
+ 		   chan->flag & HOSTAPD_CHAN_RADAR ? " RADAR" : "");
++
++	if (is_6ghz_freq(chan->freq) && (chan->flag & HOSTAPD_CHAN_NO_IR))
++		return -1;
++
+ 	return 0;
+ }
+ 
+@@ -865,6 +874,7 @@ static int hostapd_is_usable_edmg(struct hostapd_iface *iface)
+ 	int i, contiguous = 0;
+ 	int num_of_enabled = 0;
+ 	int max_contiguous = 0;
++	int err;
+ 	struct ieee80211_edmg_config edmg;
+ 	struct hostapd_channel_data *pri_chan;
+ 
+@@ -904,8 +914,9 @@ static int hostapd_is_usable_edmg(struct hostapd_iface *iface)
+ 		if (num_of_enabled > 4)
+ 			return 0;
+ 
+-		if (!hostapd_is_usable_chan(iface, freq, 1))
+-			return 0;
++		err = hostapd_is_usable_chan(iface, freq, 1);
++		if (err <= 0)
++			return err;
+ 
+ 		if (contiguous > max_contiguous)
+ 			max_contiguous = contiguous;
+@@ -981,10 +992,16 @@ static bool hostapd_is_usable_punct_bitmap(struct hostapd_iface *iface)
+ }
+ 
+ 
++/* Returns:
++ * 1 = usable
++ * 0 = not usable
++ * -1 = not currently usable due to 6 GHz NO-IR
++ */
+ static int hostapd_is_usable_chans(struct hostapd_iface *iface)
+ {
+ 	int secondary_freq;
+ 	struct hostapd_channel_data *pri_chan;
++	int err;
+ 
+ 	if (!iface->current_mode)
+ 		return 0;
+@@ -996,12 +1013,15 @@ static int hostapd_is_usable_chans(struct hostapd_iface *iface)
+ 		wpa_printf(MSG_ERROR, "Primary frequency not present");
+ 		return 0;
+ 	}
+-	if (!hostapd_is_usable_chan(iface, pri_chan->freq, 1)) {
++
++	err = hostapd_is_usable_chan(iface, pri_chan->freq, 1);
++	if (err <= 0) {
+ 		wpa_printf(MSG_ERROR, "Primary frequency not allowed");
+-		return 0;
++		return err;
+ 	}
+-	if (!hostapd_is_usable_edmg(iface))
+-		return 0;
++	err = hostapd_is_usable_edmg(iface);
++	if (err <= 0)
++		return err;
+ 
+ 	if (!hostapd_is_usable_punct_bitmap(iface))
+ 		return 0;
+@@ -1009,8 +1029,9 @@ static int hostapd_is_usable_chans(struct hostapd_iface *iface)
+ 	if (!iface->conf->secondary_channel || iface->conf->noscan)
+ 		return 1;
+ 
+-	if (hostapd_is_usable_chan(iface, iface->freq +
+-				   iface->conf->secondary_channel * 20, 0)) {
++	err = hostapd_is_usable_chan(iface, iface->freq +
++				     iface->conf->secondary_channel * 20, 0);
++	if (err > 0) {
+ 		if (iface->conf->secondary_channel == 1 &&
+ 		    (pri_chan->allowed_bw & HOSTAPD_CHAN_WIDTH_40P))
+ 			return 1;
+@@ -1019,24 +1040,24 @@ static int hostapd_is_usable_chans(struct hostapd_iface *iface)
+ 			return 1;
+ 	}
+ 	if (!iface->conf->ht40_plus_minus_allowed)
+-		return 0;
++		return err;
+ 
+ 	/* Both HT40+ and HT40- are set, pick a valid secondary channel */
+ 	secondary_freq = iface->freq + 20;
+-	if (hostapd_is_usable_chan(iface, secondary_freq, 0) &&
+-	    (pri_chan->allowed_bw & HOSTAPD_CHAN_WIDTH_40P)) {
++	err = hostapd_is_usable_chan(iface, secondary_freq, 0);
++	if (err > 0 && (pri_chan->allowed_bw & HOSTAPD_CHAN_WIDTH_40P)) {
+ 		iface->conf->secondary_channel = 1;
+ 		return 1;
+ 	}
+ 
+ 	secondary_freq = iface->freq - 20;
+-	if (hostapd_is_usable_chan(iface, secondary_freq, 0) &&
+-	    (pri_chan->allowed_bw & HOSTAPD_CHAN_WIDTH_40M)) {
++	err = hostapd_is_usable_chan(iface, secondary_freq, 0);
++	if (err > 0 && (pri_chan->allowed_bw & HOSTAPD_CHAN_WIDTH_40M)) {
+ 		iface->conf->secondary_channel = -1;
+ 		return 1;
+ 	}
+ 
+-	return 0;
++	return err;
+ }
+ 
+ 
+@@ -1097,11 +1118,17 @@ static enum hostapd_chan_status
+ hostapd_check_chans(struct hostapd_iface *iface)
+ {
+ 	if (iface->freq) {
++		int err;
++
+ 		hostapd_determine_mode(iface);
+-		if (hostapd_is_usable_chans(iface))
+-			return HOSTAPD_CHAN_VALID;
+-		else
+-			return HOSTAPD_CHAN_INVALID;
++
++		err = hostapd_is_usable_chans(iface);
++		if (err <= 0) {
++			if (!err)
++				return HOSTAPD_CHAN_INVALID;
++			return HOSTAPD_CHAN_INVALID_NO_IR;
++		}
++		return HOSTAPD_CHAN_VALID;
+ 	}
+ 
+ 	/*
+@@ -1112,6 +1139,8 @@ hostapd_check_chans(struct hostapd_iface *iface)
+ 	switch (acs_init(iface)) {
+ 	case HOSTAPD_CHAN_ACS:
+ 		return HOSTAPD_CHAN_ACS;
++	case HOSTAPD_CHAN_INVALID_NO_IR:
++		return HOSTAPD_CHAN_INVALID_NO_IR;
+ 	case HOSTAPD_CHAN_VALID:
+ 	case HOSTAPD_CHAN_INVALID:
+ 	default:
+@@ -1151,6 +1180,7 @@ int hostapd_acs_completed(struct hostapd_iface *iface, int err)
+ 
+ 	switch (hostapd_check_chans(iface)) {
+ 	case HOSTAPD_CHAN_VALID:
++		iface->is_no_ir = false;
+ 		wpa_msg(iface->bss[0]->msg_ctx, MSG_INFO,
+ 			ACS_EVENT_COMPLETED "freq=%d channel=%d",
+ 			iface->freq, iface->conf->channel);
+@@ -1160,6 +1190,9 @@ int hostapd_acs_completed(struct hostapd_iface *iface, int err)
+ 		wpa_msg(iface->bss[0]->msg_ctx, MSG_INFO, ACS_EVENT_FAILED);
+ 		hostapd_notify_bad_chans(iface);
+ 		goto out;
++	case HOSTAPD_CHAN_INVALID_NO_IR:
++		iface->is_no_ir = true;
++		/* fall through */
+ 	case HOSTAPD_CHAN_INVALID:
+ 	default:
+ 		wpa_printf(MSG_ERROR, "ACS picked unusable channels");
+@@ -1245,9 +1278,13 @@ int hostapd_select_hw_mode(struct hostapd_iface *iface)
+ 
+ 	switch (hostapd_check_chans(iface)) {
+ 	case HOSTAPD_CHAN_VALID:
++		iface->is_no_ir = false;
+ 		return 0;
+ 	case HOSTAPD_CHAN_ACS: /* ACS will run and later complete */
+ 		return 1;
++	case HOSTAPD_CHAN_INVALID_NO_IR:
++		iface->is_no_ir = true;
++		/* fall through */
+ 	case HOSTAPD_CHAN_INVALID:
+ 	default:
+ 		hostapd_notify_bad_chans(iface);
+diff --git a/src/common/wpa_ctrl.h b/src/common/wpa_ctrl.h
+index 06149ecc8a..ccff0ee091 100644
+--- a/src/common/wpa_ctrl.h
++++ b/src/common/wpa_ctrl.h
+@@ -359,6 +359,7 @@ extern "C" {
+ 
+ #define AP_EVENT_ENABLED "AP-ENABLED "
+ #define AP_EVENT_DISABLED "AP-DISABLED "
++#define AP_EVENT_NO_IR "AP-NO_IR"
+ 
+ #define INTERFACE_ENABLED "INTERFACE-ENABLED "
+ #define INTERFACE_DISABLED "INTERFACE-DISABLED "

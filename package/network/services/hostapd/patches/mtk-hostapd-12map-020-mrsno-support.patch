@@ -1,0 +1,404 @@
+Index: hostapd/src/ap/ieee802_11.c
+===================================================================
+--- hostapd.orig/src/ap/ieee802_11.c
++++ hostapd/src/ap/ieee802_11.c
+@@ -1412,6 +1412,9 @@ static void handle_auth_sae(struct hosta
+ 	bool success_status;
+ 	const u8* spa = sta->addr;
+ 	const u8* aa = hapd->wpa_auth->addr;
++	u16 frame_buff_len;
++	u16 reason_code;
++	char *hex_buf = NULL;
+ 
+ 	if (!groups)
+ 		groups = default_groups;
+@@ -1750,6 +1753,30 @@ reply:
+ 				auth_transaction, resp,
+ 				data ? wpabuf_head(data) : (u8 *) "",
+ 				data ? wpabuf_len(data) : 0, "auth-sae");
++		status_code = resp;
++		reason_code = mgmt->u.deauth.reason_code;
++		frame_buff_len = len - IEEE80211_HDRLEN;
++		int hex_len = 2*frame_buff_len + 1;
++		hex_buf = malloc(hex_len);
++		if (hex_buf == NULL) {
++			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
++			return;
++		}
++		wpa_snprintf_hex(hex_buf, hex_len, (const u8 *)&(mgmt->u.auth), frame_buff_len);
++
++		if (sta->sae && sta->sae->dot11MultiLinkActivated && sta->sae->peer_ml_ie) {
++			wpa_msg(hapd->msg_ctx, MSG_INFO,
++		        WPS_EVENT_RSN_AUTH_FAILURE
++			MACSTR " status_code=%d reason=%d len=%d buf=%s",
++			MAC2STR(sta->sae->peer_ml_ie->ml_addr), status_code, reason_code, hex_len, hex_buf);
++			os_free(hex_buf);
++		} else {
++			wpa_msg(hapd->msg_ctx, MSG_INFO,
++				WPS_EVENT_RSN_AUTH_FAILURE
++				MACSTR " status_code=%d reason=%d len=%d buf=%s",
++				MAC2STR(sta->addr), status_code, reason_code, hex_len, hex_buf);
++			os_free(hex_buf);
++		}
+ 	}
+ 
+ remove_sta:
+@@ -3777,7 +3804,7 @@ static void handle_auth(struct hostapd_d
+ 			const struct ieee80211_mgmt *mgmt, size_t len,
+ 			int rssi, int from_queue)
+ {
+-	u16 auth_alg, auth_transaction, status_code;
++	u16 auth_alg, auth_transaction, status_code, reason_code;
+ 	u16 resp = WLAN_STATUS_SUCCESS;
+ 	struct sta_info *sta = NULL;
+ 	int res, reply_res, ubus_resp;
+@@ -3786,6 +3813,8 @@ static void handle_auth(struct hostapd_d
+ 	u8 resp_ies[2 + WLAN_AUTH_CHALLENGE_LEN];
+ 	size_t resp_ies_len = 0;
+ 	u16 seq_ctrl;
++	u16 frame_buff_len;
++	char *hex_buf = NULL;
+ 	struct radius_sta rad_info;
+ 	struct hostapd_ubus_request req = {
+ 		.type = HOSTAPD_UBUS_AUTH_REQ,
+@@ -3887,6 +3916,27 @@ static void handle_auth(struct hostapd_d
+ 		wpa_printf(MSG_INFO, "Unknown authentication transaction number (%d)",
+ 			   auth_transaction);
+ 		resp = WLAN_STATUS_UNKNOWN_AUTH_TRANSACTION;
++		status_code = mgmt->u.auth.status_code;
++		reason_code = mgmt->u.deauth.reason_code;
++		frame_buff_len = len - IEEE80211_HDRLEN;
++		int hex_len = 2*frame_buff_len + 1;
++		hex_buf = malloc(hex_len);
++		if (hex_buf == NULL) {
++			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
++			return;
++		}
++		wpa_snprintf_hex(hex_buf, hex_len, (const u8 *)mgmt + IEEE80211_HDRLEN, frame_buff_len);
++		if (sta)
++			wpa_msg(hapd->msg_ctx, MSG_INFO,
++				WPS_EVENT_RSN_AUTH_FAILURE
++				MACSTR " status_code=%d reason=%d len=%d buf=%s",
++				MAC2STR(sta->addr), status_code, reason_code, hex_len, hex_buf);
++		else
++			wpa_msg(hapd->msg_ctx, MSG_INFO,
++				WPS_EVENT_RSN_AUTH_FAILURE
++				MACSTR " status_code=%d reason=%d len=%d buf=%s",
++				MAC2STR(mgmt->sa), status_code, reason_code, hex_len, hex_buf);
++		os_free(hex_buf);
+ 		goto fail;
+ 	}
+ 
+@@ -4136,6 +4186,24 @@ static void handle_auth(struct hostapd_d
+ 					, hapd->ml_group->ml_addr
+ #endif
+ 					);
++		status_code = mgmt->u.auth.status_code;
++		reason_code = mgmt->u.deauth.reason_code;
++		frame_buff_len = len - IEEE80211_HDRLEN;
++		int hex_len = 2*frame_buff_len + 1;
++		hex_buf = malloc(hex_len);
++		if (hex_buf == NULL) {
++			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
++			return;
++		}
++		wpa_snprintf_hex(hex_buf, hex_len, (const u8 *)mgmt + IEEE80211_HDRLEN, frame_buff_len);
++
++		wpa_printf(MSG_ERROR, "status_code=%d reason_code=%d\n",
++							status_code, reason_code);
++		wpa_msg(hapd->msg_ctx, MSG_INFO,
++			WPS_EVENT_RSN_AUTH_FAILURE
++			MACSTR " status_code=%d reason=%d len=%d buf=%s",
++			MAC2STR(sta->addr), status_code, reason_code, hex_len, hex_buf);
++		os_free(hex_buf);
+ 		/* handle_auth_ft_finish() callback will complete auth. */
+ 		return;
+ #endif /* CONFIG_IEEE80211R_AP */
+@@ -6887,6 +6955,11 @@ static void handle_assoc_cb(struct hosta
+ 		os_free(sta->pending_eapol_rx);
+ 		sta->pending_eapol_rx = NULL;
+ 	}
++	if (sta->eapol_for_event) {
++		wpabuf_free(sta->eapol_for_event->buf);
++		os_free(sta->eapol_for_event);
++		sta->eapol_for_event = NULL;
++	}
+ }
+ 
+ 
+Index: hostapd/src/ap/ieee802_1x.c
+===================================================================
+--- hostapd.orig/src/ap/ieee802_1x.c
++++ hostapd/src/ap/ieee802_1x.c
+@@ -996,6 +996,28 @@ ieee802_1x_alloc_eapol_sm(struct hostapd
+ 				sta->identity, sta->radius_cui);
+ }
+ 
++static void ieee802_1x_save_eapol_new(struct sta_info *sta, const u8 *buf,
++				  size_t len, enum frame_encryption encrypted)
++{
++	if (sta->eapol_for_event) {
++		wpabuf_free(sta->eapol_for_event->buf);
++	} else {
++		sta->eapol_for_event =
++			os_malloc(sizeof(*sta->eapol_for_event));
++		if (!sta->eapol_for_event)
++			return;
++	}
++
++	sta->eapol_for_event->buf = wpabuf_alloc_copy(buf, len);
++	if (!sta->eapol_for_event->buf) {
++		os_free(sta->eapol_for_event);
++		sta->eapol_for_event = NULL;
++		return;
++	}
++
++}
++
++
+ 
+ static void ieee802_1x_save_eapol(struct sta_info *sta, const u8 *buf,
+ 				  size_t len, enum frame_encryption encrypted)
+@@ -1125,7 +1147,7 @@ void ieee802_1x_receive(struct hostapd_d
+ 
+ 		return;
+ 	}
+-
++	ieee802_1x_save_eapol_new(sta, buf, len, encrypted);
+ 	if (len < sizeof(*hdr)) {
+ 		wpa_printf(MSG_INFO, "   too short IEEE 802.1X packet");
+ 		return;
+@@ -1460,6 +1482,13 @@ void ieee802_1x_free_station(struct host
+ 		sta->pending_eapol_rx = NULL;
+ 	}
+ 
++
++	if (sta->eapol_for_event) {
++		wpabuf_free(sta->eapol_for_event->buf);
++		os_free(sta->eapol_for_event);
++		sta->eapol_for_event = NULL;
++	}
++
+ 	if (!sm)
+ 		return;
+ 
+Index: hostapd/src/ap/sta_info.h
+===================================================================
+--- hostapd.orig/src/ap/sta_info.h
++++ hostapd/src/ap/sta_info.h
+@@ -181,6 +181,7 @@ struct sta_info {
+ 
+ 	struct pending_eapol_rx *pending_eapol_rx;
+ 
++	struct pending_eapol_rx *eapol_for_event;
+ 	u64 acct_session_id;
+ 	struct os_reltime acct_session_start;
+ 	int acct_session_started;
+Index: hostapd/src/ap/wpa_auth.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
+@@ -32,6 +32,7 @@
+ #include "pmksa_cache_auth.h"
+ #include "wpa_auth_i.h"
+ #include "wpa_auth_ie.h"
++#include <stdint.h>
+ 
+ #ifdef CONFIG_MTK_IEEE80211BE
+ #include "hostapd.h"
+@@ -180,6 +181,18 @@ static inline int wpa_auth_get_eapol(str
+ 	return wpa_auth->cb->get_eapol(wpa_auth->cb_ctx, addr, var);
+ }
+ 
++static struct wpabuf *wpa_auth_get_eapol_for_event(struct wpa_authenticator *wpa_auth,
++				     const u8 *addr)
++{
++
++	if (!wpa_auth->cb->get_eapol_for_event) {
++		wpa_printf(MSG_INFO, "[%s-%d] addr = " MACSTR, __func__, __LINE__, MAC2STR(addr));
++		return NULL;
++	}
++
++	return wpa_auth->cb->get_eapol_for_event(wpa_auth->cb_ctx, addr);
++}
++
+ 
+ static inline const u8 * wpa_auth_get_psk(struct wpa_authenticator *wpa_auth,
+ 					  const u8 *addr,
+@@ -3257,6 +3270,9 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 	struct wpa_eapol_ie_parse kde;
+ 	int vlan_id = 0;
+ 	int owe_ptk_workaround = !!wpa_auth->conf.owe_ptk_workaround;
++	struct wpabuf *eapol_buf;
++	u16 frame_type, frame_len;
++	char *hex_buf = NULL;
+ 
+ 	SM_ENTRY_MA(WPA_PTK, PTKCALCNEGOTIATING, wpa_ptk);
+ 	sm->EAPOLKeyReceived = false;
+@@ -3347,6 +3363,12 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 		return;
+ 	}
+ 
++	eapol_buf = wpa_auth_get_eapol_for_event(sm->wpa_auth, sm->addr);
++	if (eapol_buf)
++		wpa_hexdump_buf(MSG_ERROR,"SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)", eapol_buf);
++	else
++		wpa_printf(MSG_INFO, "eapol_buf is null");
++
+ 	if (!ok) {
+ 		wpa_auth_logger(sm->wpa_auth, sm->addr, LOGGER_DEBUG,
+ 				"invalid MIC in msg 2/4 of 4-Way Handshake");
+@@ -3400,6 +3422,19 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 		/* MLME-DEAUTHENTICATE.request */
+ 		wpa_sta_disconnect(wpa_auth, sm->addr,
+ 				   WLAN_REASON_PREV_AUTH_NOT_VALID);
++		frame_type = EAPOL_MSG_2;
++		hex_buf = malloc(eapol_buf->used * 2 + 1);
++		if (hex_buf == NULL) {
++			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
++			return;
++		}
++		wpa_snprintf_hex(hex_buf, sizeof(hex_buf), eapol_buf->buf, eapol_buf->used);
++		frame_len = sizeof(hex_buf);
++
++		wpa_msg(wpa_auth->conf.msg_ctx, MSG_INFO,
++			WPS_EVENT_EAPOL_FAIL_BUFFER MACSTR " type=%d len=%d buf=%s",
++			MAC2STR(sm->addr), frame_type, frame_len, (const char *)hex_buf);
++		os_free(hex_buf);
+ 		return;
+ 	}
+ 	if ((!sm->rsnxe && kde.rsnxe) ||
+@@ -3416,6 +3451,18 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
+ 		/* MLME-DEAUTHENTICATE.request */
+ 		wpa_sta_disconnect(wpa_auth, sm->addr,
+ 				   WLAN_REASON_PREV_AUTH_NOT_VALID);
++		frame_type = EAPOL_MSG_2;
++		hex_buf = malloc(eapol_buf->used * 2 + 1);
++		if (hex_buf == NULL) {
++			wpa_printf(MSG_ERROR, "Memory allocation failed for hex buff");
++			return;
++		}
++		wpa_snprintf_hex(hex_buf, sizeof(hex_buf), eapol_buf->buf, eapol_buf->used);
++		frame_len = sizeof(hex_buf);
++		wpa_msg(wpa_auth->conf.msg_ctx, MSG_INFO,
++			WPS_EVENT_EAPOL_FAIL_BUFFER MACSTR " type=%d len=%d buf=%s",
++			MAC2STR(sm->addr), frame_type, frame_len, (const char *)hex_buf);
++		os_free(hex_buf);
+ 		return;
+ 	}
+ #ifdef CONFIG_OCV
+@@ -3743,6 +3790,7 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
+ 	u8 *wpa_ie_buf = NULL, *wpa_ie_buf2 = NULL, *wpa_ie_buf3 = NULL;
+ 	u8 hdr[2];
+ 	struct wpa_auth_config *conf = &sm->wpa_auth->conf;
++	struct wpabuf *eapol_buf;
+ 
+ 	SM_ENTRY_MA(WPA_PTK, PTKINITNEGOTIATING, wpa_ptk);
+ 	sm->TimeoutEvt = false;
+@@ -3846,6 +3894,12 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
+ #endif /* CONFIG_TESTING_OPTIONS */
+ 	wpa_auth_logger(sm->wpa_auth, sm->addr, LOGGER_DEBUG,
+ 			"sending 3/4 msg of 4-Way Handshake");
++	eapol_buf = wpa_auth_get_eapol_for_event(sm->wpa_auth, sm->addr);
++	if(eapol_buf)
++		wpa_hexdump_buf(MSG_ERROR,"SM_STATE(WPA_PTK, PTKINITNEGOTIATING)",eapol_buf);
++	else
++		wpa_printf(MSG_INFO, "eapol_buf is null1");
++
+ 	if (sm->wpa == WPA_VERSION_WPA2) {
+ 		if (sm->use_ext_key_id && sm->TimeoutCtr == 1 &&
+ 		    wpa_auth_set_key(sm->wpa_auth, 0,
+Index: hostapd/src/ap/wpa_auth.h
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth.h
++++ hostapd/src/ap/wpa_auth.h
+@@ -308,6 +308,7 @@ struct wpa_auth_callbacks {
+ 	void (*set_eapol)(void *ctx, const u8 *addr, wpa_eapol_variable var,
+ 			  int value);
+ 	int (*get_eapol)(void *ctx, const u8 *addr, wpa_eapol_variable var);
++	struct wpabuf * (*get_eapol_for_event)(void *ctx, const u8 *addr);
+ 	const u8 * (*get_psk)(void *ctx, const u8 *addr, const u8 *p2p_dev_addr,
+ 			      const u8 *prev_psk, size_t *psk_len,
+ 			      int *vlan_id);
+Index: hostapd/src/ap/wpa_auth_glue.c
+===================================================================
+--- hostapd.orig/src/ap/wpa_auth_glue.c
++++ hostapd/src/ap/wpa_auth_glue.c
+@@ -347,6 +347,30 @@ static void hostapd_wpa_auth_set_eapol(v
+ 	}
+ }
+ 
++static struct wpabuf * hostapd_wpa_auth_get_eapol_for_event(void *ctx, const u8 *addr)
++{
++	struct hostapd_data *hapd = ctx;
++	struct sta_info *sta = ap_get_sta(hapd, addr);
++	if (sta == NULL)
++		wpa_printf(MSG_ERROR, "[%s-%d] addr = " MACSTR, __func__, __LINE__, MAC2STR(addr));
++	if (sta && sta->eapol_sm)
++		wpa_printf(MSG_ERROR, "[%s-%d] addr = " MACSTR, __func__, __LINE__, MAC2STR(addr));
++
++	if (sta == NULL) {
++		wpa_printf(MSG_ERROR, "[%s-%d] addr = " MACSTR, __func__, __LINE__, MAC2STR(addr));
++		return NULL;
++	}
++	if (!sta->eapol_for_event) {
++		wpa_printf(MSG_ERROR, "[%s-%d] eapol_for_event is null = " MACSTR, __func__, __LINE__, MAC2STR(addr));
++		return NULL;
++	}
++
++	if (sta->eapol_for_event->buf)
++		wpa_hexdump_buf(MSG_ERROR,"eapol hexdump glue file",sta->eapol_for_event->buf);
++
++	return sta->eapol_for_event->buf;
++
++}
+ 
+ static int hostapd_wpa_auth_get_eapol(void *ctx, const u8 *addr,
+ 				      wpa_eapol_variable var)
+@@ -1517,6 +1541,7 @@ int hostapd_setup_wpa(struct hostapd_dat
+ 		.psk_failure_report = hostapd_wpa_auth_psk_failure_report,
+ 		.set_eapol = hostapd_wpa_auth_set_eapol,
+ 		.get_eapol = hostapd_wpa_auth_get_eapol,
++		.get_eapol_for_event = hostapd_wpa_auth_get_eapol_for_event,
+ 		.get_psk = hostapd_wpa_auth_get_psk,
+ 		.get_msk = hostapd_wpa_auth_get_msk,
+ 		.set_key = hostapd_wpa_auth_set_key,
+Index: hostapd/src/common/eapol_common.h
+===================================================================
+--- hostapd.orig/src/common/eapol_common.h
++++ hostapd/src/common/eapol_common.h
+@@ -53,6 +53,8 @@ enum { EAPOL_KEY_TYPE_RC4 = 1, EAPOL_KEY
+ #define IEEE8021X_REPLAY_COUNTER_LEN 8
+ #define IEEE8021X_KEY_SIGN_LEN 16
+ #define IEEE8021X_KEY_IV_LEN 16
++#define EAPOL_MSG_2 3
++#define EAPOL_MSG_4 4
+ 
+ #define IEEE8021X_KEY_INDEX_FLAG 0x80
+ #define IEEE8021X_KEY_INDEX_MASK 0x03
+Index: hostapd/src/common/wpa_ctrl.h
+===================================================================
+--- hostapd.orig/src/common/wpa_ctrl.h
++++ hostapd/src/common/wpa_ctrl.h
+@@ -165,7 +165,8 @@ extern "C" {
+ #define WPS_EVENT_OPEN_NETWORK "WPS-OPEN-NETWORK "
+ 
+ #define WPA_EVENT_EAPOL_TIMEOUT "EAPOL-TIMEOUT "
+-
++#define WPS_EVENT_EAPOL_FAIL_BUFFER "WPS-EAPOL-BUFFER-SENT "
++#define WPS_EVENT_RSN_AUTH_FAILURE "WPA-RSN-AUTH-FAILURE "
+ #ifdef CONFIG_MTK_MAP
+ #define WPS_EVENT_DPP_URI_RECEIVED "WPS-DPP-URI-RECEIVED "
+ #define WPA_EVENT_RECONF_FAIL "WPA-RECONF-FAIL "
+Index: hostapd/src/wps/wps_registrar.c
+===================================================================
+--- hostapd.orig/src/wps/wps_registrar.c
++++ hostapd/src/wps/wps_registrar.c
+@@ -2153,7 +2153,6 @@ static struct wpabuf * wps_build_m8(stru
+ 		WPS_EVENT_EAPOL_COMPLETE MACSTR " multi_ap_ext=%u",
+ 		MAC2STR(wps->mac_addr_e), wps->peer_dev.multi_ap_ext);
+ #endif /* CONFIG_MTK_MAP */
+-
+ 	wps->state = RECV_DONE;
+ 	return msg;
+ }

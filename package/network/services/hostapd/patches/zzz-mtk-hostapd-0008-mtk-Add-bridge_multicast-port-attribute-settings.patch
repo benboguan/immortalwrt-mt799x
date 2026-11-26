@@ -10,27 +10,18 @@ within hostapd so they are retained after the BSS is brought up again.
 
 Signed-off-by: Anthony Refuerzo <anthony96922@gmail.com>
 ---
- hostapd/config_file.c        |  4 ++++
- src/ap/ap_config.h           |  2 ++
- src/ap/hostapd.c             | 16 ++++++++++++++++
+ hostapd/config_file.c        |  2 ++
+ src/ap/ap_config.h           |  1 +
+ src/ap/hostapd.c             | 8 ++++++++
  src/drivers/driver.h         |  1 +
  src/drivers/driver_nl80211.c |  2 ++
- 5 files changed, 25 insertions(+)
+ 5 files changed, 14 insertions(+)
 
 diff --git a/hostapd/config_file.c b/hostapd/config_file.c
 index 472a91df2..2e208d3f6 100644
 --- a/hostapd/config_file.c
 +++ b/hostapd/config_file.c
-@@ -2533,6 +2533,8 @@ static int hostapd_config_fill(struct hostapd_config *conf,
- 		os_strlcpy(bss->bridge, pos, sizeof(bss->bridge));
- 		if (!bss->wds_bridge[0])
- 			os_strlcpy(bss->wds_bridge, pos, sizeof(bss->wds_bridge));
-+	} else if (os_strcmp(buf, "bridge_hairpin") == 0) {
-+		bss->bridge_hairpin = atoi(pos);
- 	} else if (os_strcmp(buf, "snoop_iface") == 0) {
- 		os_strlcpy(bss->snoop_iface, pos, sizeof(bss->snoop_iface));
- 	} else if (os_strcmp(buf, "vlan_bridge") == 0) {
-@@ -4908,6 +4910,8 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+@@ -4908,6 +4908,8 @@ static int hostapd_config_fill(struct hostapd_config *conf,
  #endif /* CONFIG_FILS */
  	} else if (os_strcmp(buf, "multicast_to_unicast") == 0) {
  		bss->multicast_to_unicast = atoi(pos);
@@ -43,15 +34,7 @@ diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
 index dfe259c30..7036c15d5 100644
 --- a/src/ap/ap_config.h
 +++ b/src/ap/ap_config.h
-@@ -304,6 +304,7 @@ struct hostapd_bss_config {
- 	char snoop_iface[IFNAMSIZ + 1];
- 	char vlan_bridge[IFNAMSIZ + 1];
- 	char wds_bridge[IFNAMSIZ + 1];
-+	int bridge_hairpin; /* hairpin_mode on bridge members */
- 
- 	char *config_id;
- 
-@@ -796,6 +797,7 @@ struct hostapd_bss_config {
+@@ -796,6 +796,7 @@ struct hostapd_bss_config {
  #endif /* CONFIG_FILS */
  
  	int multicast_to_unicast;
@@ -63,34 +46,26 @@ diff --git a/src/ap/hostapd.c b/src/ap/hostapd.c
 index 58492e51e..c3fd91e43 100644
 --- a/src/ap/hostapd.c
 +++ b/src/ap/hostapd.c
-@@ -1528,6 +1528,22 @@ static int hostapd_setup_bss(struct hostapd_data *hapd, int first,
- 		return -1;
- 	}
- 
-+	if (conf->bridge[0]) {
+@@ -1532,6 +1532,14 @@ static int hostapd_setup_bss(struct hostapd_data *hapd, int first,
+ 		if (conf->bridge_hairpin) {
+ 			hostapd_drv_br_port_set_attr(hapd, DRV_BR_PORT_ATTR_HAIRPIN_MODE, 1);
+ 		}
++
 +		/* Set explicitly configured bridge parameters that might have
 +		 * been lost if the interface has been removed out of the
 +		 * bridge. */
 +
 +		/* multicast to unicast on bridge ports */
 +		if (conf->bridge_multicast_to_unicast)
-+			hostapd_drv_br_port_set_attr(
-+				hapd, DRV_BR_PORT_ATTR_MCAST2UCAST, 1);
-+
-+		/* hairpin mode */
-+		if (conf->bridge_hairpin)
-+			hostapd_drv_br_port_set_attr(
-+				hapd, DRV_BR_PORT_ATTR_HAIRPIN_MODE, 1);
-+	}
-+
- 	if (conf->proxy_arp) {
- 		if (x_snoop_init(hapd)) {
- 			wpa_printf(MSG_ERROR,
++			hostapd_drv_br_port_set_attr(hapd, DRV_BR_PORT_ATTR_MCAST2UCAST, 1);
+ 	}
+ 
+ 	if (!hostapd_drv_none(hapd) && vlan_init(hapd)) {
 diff --git a/src/drivers/driver.h b/src/drivers/driver.h
 index 46182552d..b205744d0 100644
 --- a/src/drivers/driver.h
 +++ b/src/drivers/driver.h
-@@ -2584,6 +2584,7 @@ struct macsec_init_params {
+@@ -2542,6 +2542,7 @@ struct macsec_init_params {
  enum drv_br_port_attr {
  	DRV_BR_PORT_ATTR_PROXYARP,
  	DRV_BR_PORT_ATTR_HAIRPIN_MODE,

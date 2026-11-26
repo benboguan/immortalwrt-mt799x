@@ -1,0 +1,28 @@
+diff --git a/src/ap/wnm_ap.c b/src/ap/wnm_ap.c
+index 734fd6d87..ab8923366 100644
+--- a/src/ap/wnm_ap.c
++++ b/src/ap/wnm_ap.c
+@@ -909,7 +909,11 @@ int wnm_send_ess_disassoc_imminent(struct hostapd_data *hapd,
+ 	}
+ 
+ 	hapd->openwrt_stats.wnm.bss_transition_request_tx++;
++#ifdef CONFIG_EM_PLUS_SUPPORT
++	if (disassoc_timer && !hapd->conf->multi_ap) {
++#else
+ 	if (disassoc_timer) {
++#endif
+ 		/* send disassociation frame after time-out */
+ 		set_disassoc_timer(hapd, sta, disassoc_timer);
+ 	}
+@@ -991,7 +995,11 @@ int wnm_send_bss_tm_req(struct hostapd_data *hapd, struct sta_info *sta,
+ 	os_free(buf);
+ 
+ 	hapd->openwrt_stats.wnm.bss_transition_request_tx++;
++#ifdef CONFIG_EM_PLUS_SUPPORT
++	if (disassoc_timer && !hapd->conf->multi_ap) {
++#else
+ 	if (disassoc_timer) {
++#endif
+ 		/* send disassociation frame after time-out */
+ 		set_disassoc_timer(hapd, sta, disassoc_timer);
+ 	}

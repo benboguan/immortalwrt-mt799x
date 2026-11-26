@@ -1,8 +1,8 @@
-diff --git a/src/drivers/driver_nl80211.c b/src/drivers/driver_nl80211.c
-index 7bac6bc..a57df7f 100644
---- a/src/drivers/driver_nl80211.c
-+++ b/src/drivers/driver_nl80211.c
-@@ -2872,10 +2872,13 @@ static int nl80211_mgmt_subscribe_non_ap(struct i802_bss *bss)
+Index: hostapd/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd.orig/src/drivers/driver_nl80211.c
++++ hostapd/src/drivers/driver_nl80211.c
+@@ -2506,10 +2506,13 @@ static int nl80211_mgmt_subscribe_non_ap
  
  #ifdef CONFIG_PASN
  	/* register for PASN Authentication frames */
@@ -20,7 +20,7 @@ index 7bac6bc..a57df7f 100644
  #endif /* CONFIG_PASN */
  
  #ifdef CONFIG_INTERWORKING
-@@ -3722,6 +3725,41 @@ static int issue_key_mgmt_set_key(struct wpa_driver_nl80211_data *drv,
+@@ -3356,6 +3359,43 @@ static int issue_key_mgmt_set_key(struct
  }
  #endif /* CONFIG_DRIVER_NL80211_QCA */
  
@@ -29,7 +29,7 @@ index 7bac6bc..a57df7f 100644
 +		const u8 *key, size_t key_len)
 +{
 +	struct nl_msg *msg;
-+	int ret;
++	int ret = -1;
 +	struct nlattr *attr = NULL;
 +
 +	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
@@ -41,7 +41,9 @@ index 7bac6bc..a57df7f 100644
 +	if (!attr)
 +		goto fail;
 +
-+	nla_put(msg, MTK_NL80211_VENDOR_ATTR_SET_PASN_KEY, key_len, (void*) key);
++	if (nla_put(msg, MTK_NL80211_VENDOR_ATTR_SET_PASN_KEY, key_len, (void*) key))
++		goto fail;
++
 +	nla_nest_end(msg, attr);
 +	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
 +	if (ret) {
@@ -62,11 +64,11 @@ index 7bac6bc..a57df7f 100644
  
  static int nl80211_set_pmk(struct wpa_driver_nl80211_data *drv,
  			   const u8 *key, size_t key_len,
-diff --git a/src/drivers/driver_nl80211.h b/src/drivers/driver_nl80211.h
-index b1bfe53..fd0b854 100644
---- a/src/drivers/driver_nl80211.h
-+++ b/src/drivers/driver_nl80211.h
-@@ -335,5 +335,6 @@ int wpa_driver_nl80211_abort_scan(void *priv, u64 scan_cookie);
+Index: hostapd/src/drivers/driver_nl80211.h
+===================================================================
+--- hostapd.orig/src/drivers/driver_nl80211.h
++++ hostapd/src/drivers/driver_nl80211.h
+@@ -336,5 +336,6 @@ int wpa_driver_nl80211_abort_scan(void *
  int wpa_driver_nl80211_vendor_scan(struct i802_bss *bss,
  				   struct wpa_driver_scan_params *params);
  int nl80211_set_default_scan_ies(void *priv, const u8 *ies, size_t ies_len);
@@ -74,11 +76,11 @@ index b1bfe53..fd0b854 100644
 +int set_pasn_key(struct wpa_driver_nl80211_data *drv,
 +                const u8 *key, size_t key_len);
  #endif /* DRIVER_NL80211_H */
-diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
-index 8679183..0d8f041 100644
---- a/wpa_supplicant/ctrl_iface.c
-+++ b/wpa_supplicant/ctrl_iface.c
-@@ -2836,6 +2836,15 @@ static char * wpa_supplicant_ie_txt(char *pos, char *end, const char *proto,
+Index: hostapd/wpa_supplicant/ctrl_iface.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/ctrl_iface.c
++++ hostapd/wpa_supplicant/ctrl_iface.c
+@@ -2824,6 +2824,15 @@ static char * wpa_supplicant_ie_txt(char
  			return pos;
  		pos += ret;
  	}
@@ -94,7 +96,7 @@ index 8679183..0d8f041 100644
  	if (data.key_mgmt & WPA_KEY_MGMT_SAE_EXT_KEY) {
  		ret = os_snprintf(pos, end - pos, "%sSAE-EXT-KEY",
  				  pos == start ? "" : "+");
-@@ -12652,8 +12661,8 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+@@ -12554,8 +12563,8 @@ char * wpa_supplicant_ctrl_iface_process
  		if (wpas_ctrl_iface_configure_mscs(wpa_s, buf + 5))
  			reply_len = -1;
  #ifdef CONFIG_PASN
@@ -105,10 +107,10 @@ index 8679183..0d8f041 100644
  			reply_len = -1;
  	} else if (os_strcmp(buf, "PASN_STOP") == 0) {
  		wpas_pasn_auth_stop(wpa_s);
-diff --git a/wpa_supplicant/pasn_supplicant.c b/wpa_supplicant/pasn_supplicant.c
-index aad3462..022f5d4 100644
---- a/wpa_supplicant/pasn_supplicant.c
-+++ b/wpa_supplicant/pasn_supplicant.c
+Index: hostapd/wpa_supplicant/pasn_supplicant.c
+===================================================================
+--- hostapd.orig/wpa_supplicant/pasn_supplicant.c
++++ hostapd/wpa_supplicant/pasn_supplicant.c
 @@ -24,6 +24,8 @@
  #include "driver_i.h"
  #include "bss.h"
@@ -118,7 +120,7 @@ index aad3462..022f5d4 100644
  
  static const int dot11RSNAConfigPMKLifetime = 43200;
  
-@@ -1342,6 +1344,8 @@ int wpas_pasn_auth_rx(struct wpa_supplicant *wpa_s,
+@@ -1342,6 +1344,8 @@ int wpas_pasn_auth_rx(struct wpa_supplic
  	struct wpa_ie_data rsn_data;
  	struct wpa_pasn_params_data pasn_params;
  	struct wpabuf *wrapped_data = NULL, *secret = NULL, *frame = NULL;
@@ -127,7 +129,7 @@ index aad3462..022f5d4 100644
  	u8 mic[WPA_PASN_MAX_MIC_LEN], out_mic[WPA_PASN_MAX_MIC_LEN];
  	u8 mic_len;
  	u16 status;
-@@ -1570,6 +1574,8 @@ int wpas_pasn_auth_rx(struct wpa_supplicant *wpa_s,
+@@ -1570,6 +1574,8 @@ int wpas_pasn_auth_rx(struct wpa_supplic
  	ptksa_cache_add(wpa_s->ptksa, pasn->bssid, pasn->cipher,
  			dot11RSNAConfigPMKLifetime, &pasn->ptk);
  

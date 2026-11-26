@@ -1,17 +1,17 @@
-diff --git a/src/drivers/driver_nl80211.c b/src/drivers/driver_nl80211.c
-index 7e23ef4..79f739c 100644
---- a/src/drivers/driver_nl80211.c
-+++ b/src/drivers/driver_nl80211.c
-@@ -35,6 +35,7 @@
- #include "radiotap_iter.h"
+Index: hostapd/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd.orig/src/drivers/driver_nl80211.c
++++ hostapd/src/drivers/driver_nl80211.c
+@@ -37,6 +37,7 @@
  #include "rfkill.h"
+ #include "ap/hostapd.h"
  #include "driver_nl80211.h"
 +#include "linux_wext.h"
  
  
  #ifndef NETLINK_CAP_ACK
-@@ -1175,6 +1176,409 @@ static void nl80211_refresh_mac(struct wpa_driver_nl80211_data *drv,
- 	}
+@@ -1178,6 +1179,418 @@ static int wpa_driver_nl80211_own_ifinde
+ 	return 0;
  }
  
 +#define OID_802_11_WNM_PROXY_ARP	0x093b
@@ -302,6 +302,9 @@ index 7e23ef4..79f739c 100644
 +
 +	/* send arp response on behalf of target */
 +	sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
++	if (sock < 0)
++		return -1;
++
 +	memset(&sll, 0, sizeof(sll));
 +
 +	if (from_ds) {
@@ -320,6 +323,10 @@ index 7e23ef4..79f739c 100644
 +		bufsize = 86;
 +
 +	buf = os_zalloc(bufsize);
++	if (!buf) {
++		close(sock);
++		return -1;
++	}
 +
 +	if (ip_type == IPV4) {
 +		hotspot_proxy_arp_ipv4(buf, source_mac_addr, source_ip_addr,
@@ -330,6 +337,8 @@ index 7e23ef4..79f739c 100644
 +	}
 +
 +	if (sendto(sock, buf, bufsize, 0, (struct sockaddr *)&sll, sizeof(sll)) < 0) {
++		close(sock);
++		os_free(buf);
 +		return -1;
 +	}
 +
@@ -418,9 +427,9 @@ index 7e23ef4..79f739c 100644
 +	}
 +}
  
- static void wpa_driver_nl80211_event_rtm_newlink(void *ctx,
- 						 struct ifinfomsg *ifi,
-@@ -1210,7 +1614,14 @@ static void wpa_driver_nl80211_event_rtm_newlink(void *ctx,
+ static struct wpa_driver_nl80211_data *
+ nl80211_find_drv(struct nl80211_global *global, int idx, u8 *buf, size_t len,
+@@ -1289,7 +1702,14 @@ static void wpa_driver_nl80211_event_rtm
  			pos += os_snprintf(pos, end - pos, " master=%u", brid);
  			break;
  		case IFLA_WIRELESS:

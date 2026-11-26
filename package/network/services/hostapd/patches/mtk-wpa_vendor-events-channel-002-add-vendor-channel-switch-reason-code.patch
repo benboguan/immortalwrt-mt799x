@@ -1,0 +1,54 @@
+Index: hostapd/src/drivers/mediatek_driver_cmd_nl80211.c
+===================================================================
+--- hostapd.orig/src/drivers/mediatek_driver_cmd_nl80211.c
++++ hostapd/src/drivers/mediatek_driver_cmd_nl80211.c
+@@ -552,6 +552,7 @@ static void mtk_nl80211_rx_ch_switch_eve
+ 	union wpa_event_data wpa_data;
+ 	int ifidx;
+ 	int ret;
++	int switch_reason;
+ 
+ 	ret = nla_parse(tb, MTK_NL80211_VENDOR_ATTR_CH_SWITCH_MAX,
+ 				(struct nlattr *) data, data_len, NULL);
+@@ -589,6 +590,41 @@ static void mtk_nl80211_rx_ch_switch_eve
+ 		wpa_data.ch_switch.count = nla_get_u32(
+ 			tb[MTK_NL80211_VENDOR_ATTR_CH_SWITCH_COUNT]);
+ 
++	if (tb[MTK_NL80211_VENDOR_ATTR_CH_SWITCH_REASON]) {
++		switch_reason = nla_get_u32(tb[MTK_NL80211_VENDOR_ATTR_CH_SWITCH_REASON]);
++		switch(switch_reason) {
++		case CH_SWITCH_REASON_IDLE:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : IDLE");
++			break;
++		case CH_SWITCH_REASON_LTE_SAFE_CHN:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : LTE_SAFE_CHN");
++			break;
++		case CH_SWITCH_REASON_PARTIAL_SCAN:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : PARTIAL_SCAN ");
++			break;
++		case CH_SWITCH_REASON_ACS:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : ACS");
++			break;
++		case CH_SWITCH_REASON_SET_CHN:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : SET_CHN");
++			break;
++		case CH_SWITCH_REASON_SCAN:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : SCAN");
++			break;
++		case CH_SWITCH_REASON_PEER_CSA:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : PEER_CSA");
++			break;
++		case CH_SWITCH_REASON_DFS:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : DFS");
++			break;
++		case CH_SWITCH_REASON_ABORT_SCAN:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : ABORT_SCAN");
++			break;
++		case CH_SWITCH_REASON_UNKNOWN:
++		default:
++			wpa_printf(MSG_INFO, "Channel switch notification reason : UNKNOWN");
++		}
++	}
+ 	/* Check HT params */
+ 	if (tb[MTK_NL80211_VENDOR_ATTR_CH_SWITCH_CHANNEL_TYPE]) {
+ 		wpa_data.ch_switch.ht_enabled = 1;

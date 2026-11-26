@@ -16,7 +16,7 @@ diff --git a/wpa_supplicant/bss.c b/wpa_supplicant/bss.c
 index 5c51a71..c2a8739 100644
 --- a/wpa_supplicant/bss.c
 +++ b/wpa_supplicant/bss.c
-@@ -1459,19 +1459,24 @@ const u8 * wpa_bss_get_rsne(const struct wpa_bss *bss)
+@@ -1459,13 +1459,18 @@ const u8 * wpa_bss_get_rsne(const struct wpa_bss *bss)
  		return wpa_bss_get_ie(bss, WLAN_EID_RSN);
  #endif /* CONFIG_TESTING_OPTIONS */
  
@@ -25,24 +25,18 @@ index 5c51a71..c2a8739 100644
 +	if (ie)
 +		return ie;
 +	
- 	if (wpa_s && wpa_s->conf) {
- 		wpa_printf(MSG_DEBUG,"[%s][%d] rsn_overriding = %d\n", __func__, __LINE__,
- 			wpa_s->conf->rsn_overriding);
- 		if (wpa_s->conf->rsn_overriding == RSN_OVERRIDING_ENABLED) {
- 			ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_2_IE_VENDOR_TYPE);
- 			if (ie)
- 				return ie;
- 			ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_IE_VENDOR_TYPE);
- 			if (ie)
- 				return ie;
- 		}
- 	}
+ 	ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_2_IE_VENDOR_TYPE);
+ 	if (ie)
+ 		return ie;
+ 	ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_IE_VENDOR_TYPE);
+ 	if (ie)
+ 		return ie;
 -	return wpa_bss_get_ie(bss, WLAN_EID_RSN);
 +	return NULL;
  }
  
  
-@@ -1478,15 +1483,20 @@ const u8 * wpa_bss_get_rsnxe(const struct wpa_bss *bss)
+@@ -1478,9 +1483,14 @@ const u8 * wpa_bss_get_rsnxe(const struct wpa_bss *bss)
  		return wpa_bss_get_ie(bss, WLAN_EID_RSNX);
  #endif /* CONFIG_TESTING_OPTIONS */
  
@@ -51,15 +45,9 @@ index 5c51a71..c2a8739 100644
 +	if (ie)
 +		return ie;
 +
- 	if (wpa_s && wpa_s->conf) {
- 		wpa_printf(MSG_DEBUG,"[%s][%d] rsn_overriding = %d\n", __func__, __LINE__,
- 			wpa_s->conf->rsn_overriding);
- 		if (wpa_s->conf->rsn_overriding == RSN_OVERRIDING_ENABLED) {
- 			ie = wpa_bss_get_vendor_ie(bss, RSNXE_OVERRIDE_IE_VENDOR_TYPE);
- 			if (ie)
- 				return ie;
- 		}
- 	}
+ 	ie = wpa_bss_get_vendor_ie(bss, RSNXE_OVERRIDE_IE_VENDOR_TYPE);
+ 	if (ie)
+ 		return ie;
 -	return wpa_bss_get_ie(bss, WLAN_EID_RSNX);
 +	return NULL;
  }

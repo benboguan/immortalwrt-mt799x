@@ -168,6 +168,21 @@ static const struct ubus_method bss_methods[] = {
 #endif
 };
 
+bool wpas_ubus_object_exists(void)
+{
+	struct ubus_context *check = ubus_connect(NULL);
+	uint32_t id;
+	bool ret;
+
+	if (!check)
+		return false;
+
+	ret = (ubus_lookup_id(check, "wpa_supplicant", &id) == 0);
+	ubus_free(check);
+
+	return ret;
+}
+
 static struct ubus_object_type bss_object_type =
 	UBUS_OBJECT_TYPE("wpas_bss", bss_methods);
 
@@ -176,6 +191,9 @@ void wpas_ubus_add_bss(struct wpa_supplicant *wpa_s)
 	struct ubus_object *obj = &wpa_s->ubus.obj;
 	char *name;
 	int ret;
+
+	if (!wpas_ucode_ubus_fallback)
+		return;
 
 	if (!wpas_ubus_init())
 		return;
@@ -195,6 +213,9 @@ void wpas_ubus_free_bss(struct wpa_supplicant *wpa_s)
 {
 	struct ubus_object *obj = &wpa_s->ubus.obj;
 	char *name = (char *) obj->name;
+
+	if (!wpas_ucode_ubus_fallback)
+		return;
 
 	if (!ctx)
 		return;

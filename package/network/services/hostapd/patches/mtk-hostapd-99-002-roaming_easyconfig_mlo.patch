@@ -1,8 +1,8 @@
-diff --git a/src/ap/wpa_auth_ft.c b/src/ap/wpa_auth_ft.c
-index 882177a..1a06749 100644
---- a/src/ap/wpa_auth_ft.c
-+++ b/src/ap/wpa_auth_ft.c
-@@ -2282,8 +2282,13 @@ static int wpa_ft_pull_pmk_r1(struct wpa_state_machine *sm,
+Index: hostapd-2022.07.29~b704dc72/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd-2022.07.29~b704dc72.orig/src/ap/wpa_auth_ft.c
++++ hostapd-2022.07.29~b704dc72/src/ap/wpa_auth_ft.c
+@@ -2283,8 +2283,13 @@ static int wpa_ft_pull_pmk_r1(struct wpa
  	struct tlv_list req_enc[] = {
  		{ .type = FT_RRB_PMK_R0_NAME, .len = WPA_PMK_NAME_LEN,
  		  .data = pmk_r0_name },
@@ -16,15 +16,21 @@ index 882177a..1a06749 100644
  		{ .type = FT_RRB_LAST_EMPTY, .len = 0, .data = NULL },
  	};
  	struct tlv_list req_auth[] = {
-@@ -3624,6 +3629,7 @@ static int wpa_ft_process_auth_req(struct wpa_state_machine *sm,
+@@ -3625,6 +3630,13 @@ static int wpa_ft_process_auth_req(struc
  	int use_sha384;
  	size_t pmk_r1_len, kdk_len;
  	const u8 *s1kh_id;
-+	struct hostapd_data *hapd_mlo = sm->wpa_auth->cb_ctx;
- #ifdef CONFIG_ROAM_CALIB
- 	struct hostapd_data *hapd = sm->wpa_auth->cb_ctx;
- #endif /* CONFIG _ROAM_CALIB */
-@@ -3860,7 +3866,7 @@ pmk_r1_derived:
++	struct hostapd_data *hapd_mlo = NULL;
++
++	if (sm == NULL) {
++		wpa_printf(MSG_DEBUG, "WPA SM not available");
++		return WLAN_STATUS_UNSPECIFIED_FAILURE;
++	}
++	hapd_mlo = sm->wpa_auth->cb_ctx;
+ 
+ 	*resp_ies = NULL;
+ 	*resp_ies_len = 0;
+@@ -3861,7 +3873,7 @@ pmk_r1_derived:
  
  	if (sm->dot11MultiLinkActivated) {
  		wpa_printf(MSG_DEBUG, "FT: Add ML IE in authentication response");
@@ -33,7 +39,7 @@ index 882177a..1a06749 100644
  		if (ret < 0)
  			goto fail;
  		pos += ret;
-@@ -4929,12 +4935,18 @@ struct ft_get_sta_ctx {
+@@ -4931,12 +4943,18 @@ struct ft_get_sta_ctx {
  static int ft_get_sta_cb(struct wpa_state_machine *sm, void *ctx)
  {
  	struct ft_get_sta_ctx *info = ctx;

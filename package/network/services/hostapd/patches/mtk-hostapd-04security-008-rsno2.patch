@@ -1,8 +1,8 @@
-Index: hostapd-2022-07-29-b704dc72/hostapd/config_file.c
+Index: hostapd/hostapd/config_file.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/hostapd/config_file.c
-+++ hostapd-2022-07-29-b704dc72/hostapd/config_file.c
-@@ -3133,6 +3133,11 @@ static int hostapd_config_fill(struct ho
+--- hostapd.orig/hostapd/config_file.c
++++ hostapd/hostapd/config_file.c
+@@ -2961,6 +2961,11 @@ static int hostapd_config_fill(struct ho
  			hostapd_config_parse_key_mgmt(line, pos);
  		if (bss->rsn_override_key_mgmt == -1)
  			return 1;
@@ -14,7 +14,7 @@ Index: hostapd-2022-07-29-b704dc72/hostapd/config_file.c
  	} else if (os_strcmp(buf, "wpa_psk_radius") == 0) {
  		bss->wpa_psk_radius = atoi(pos);
  		if (bss->wpa_psk_radius != PSK_RADIUS_IGNORED &&
-@@ -3171,6 +3176,19 @@ static int hostapd_config_fill(struct ho
+@@ -2999,6 +3004,19 @@ static int hostapd_config_fill(struct ho
  		    bss->rsn_override_pairwise == 0)
  			return 1;
  		if (bss->rsn_override_pairwise &
@@ -34,19 +34,30 @@ Index: hostapd-2022-07-29-b704dc72/hostapd/config_file.c
  		    (WPA_CIPHER_NONE | WPA_CIPHER_WEP40 | WPA_CIPHER_WEP104)) {
  			wpa_printf(MSG_ERROR,
  				   "Line %d: unsupported pairwise cipher suite '%s'",
-@@ -3655,6 +3673,8 @@ static int hostapd_config_fill(struct ho
- 		bss->ieee80211w = atoi(pos);
- 	} else if (os_strcmp(buf, "rsn_override_mfp") == 0) {
- 		bss->rsn_override_mfp = atoi(pos);
+@@ -3494,6 +3512,19 @@ static int hostapd_config_fill(struct ho
+ 			return 1;
+ 		}
+ 		bss->rsn_override_mfp = (int)val;
 +	} else if (os_strcmp(buf, "rsn_override_mfp_2") == 0) {
-+		bss->rsn_override_mfp_2 = atoi(pos);
++		long val;
++		char *endptr;
++
++		errno = 0;
++		val = strtol(pos, &endptr, 10);
++		if ((errno != 0) || (endptr == pos) ||
++		    (val > INT_MAX) || (val < INT_MIN)) {
++			wpa_printf(MSG_ERROR, "Line %d: invalid rsn_override_mfp_2: %s",
++				   line, pos);
++			return 1;
++		}
++		bss->rsn_override_mfp_2 = (int)val;
  	} else if (os_strcmp(buf, "group_mgmt_cipher") == 0) {
  		if (os_strcmp(pos, "AES-128-CMAC") == 0) {
  			bss->group_mgmt_cipher = WPA_CIPHER_AES_128_CMAC;
-Index: hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
+Index: hostapd/hostapd/ctrl_iface.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/hostapd/ctrl_iface.c
-+++ hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
+--- hostapd.orig/hostapd/ctrl_iface.c
++++ hostapd/hostapd/ctrl_iface.c
 @@ -1000,7 +1000,8 @@ static int hostapd_ctrl_iface_get_key_mg
  #endif /* CONFIG_FILS */
  
@@ -57,11 +68,11 @@ Index: hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
  		ret = os_snprintf(pos, end - pos, "OWE ");
  		if (os_snprintf_error(end - pos, ret))
  			return pos - buf;
-Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.c
+Index: hostapd/src/ap/ap_config.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/ap_config.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/ap_config.c
-@@ -484,10 +484,13 @@ int hostapd_setup_sae_pt(struct hostapd_
+--- hostapd.orig/src/ap/ap_config.c
++++ hostapd/src/ap/ap_config.c
+@@ -483,10 +483,13 @@ int hostapd_setup_sae_pt(struct hostapd_
  
  	if ((conf->sae_pwe == 0 && !hostapd_sae_pw_id_in_use(conf) &&
  	     !wpa_key_mgmt_sae_ext_key(conf->wpa_key_mgmt |
@@ -77,11 +88,11 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.c
  		return 0; /* PT not needed */
  
  	sae_deinit_pt(ssid->pt);
-Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
+Index: hostapd/src/ap/ap_config.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/ap_config.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
-@@ -378,8 +378,10 @@ struct hostapd_bss_config {
+--- hostapd.orig/src/ap/ap_config.h
++++ hostapd/src/ap/ap_config.h
+@@ -363,8 +363,10 @@ struct hostapd_bss_config {
  	int extended_key_id;
  	int wpa_key_mgmt;
  	int rsn_override_key_mgmt;
@@ -92,7 +103,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
  	int group_mgmt_cipher;
  	int beacon_prot;
  	/* dot11AssociationSAQueryMaximumTimeout (in TUs) */
-@@ -409,6 +411,7 @@ struct hostapd_bss_config {
+@@ -394,6 +396,7 @@ struct hostapd_bss_config {
  	int wpa_disable_eapol_key_retries;
  	int rsn_pairwise;
  	int rsn_override_pairwise;
@@ -100,10 +111,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
  	int rsn_preauth;
  	char *rsn_preauth_interfaces;
  
-Index: hostapd-2022-07-29-b704dc72/src/ap/beacon.c
+Index: hostapd/src/ap/beacon.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/beacon.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/beacon.c
+--- hostapd.orig/src/ap/beacon.c
++++ hostapd/src/ap/beacon.c
 @@ -411,6 +411,18 @@ static u8 * hostapd_get_rsne_override(st
  	return pos + 2 + ie[1];
  }
@@ -182,10 +193,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/beacon.c
  	params->auth_algs = hapd->conf->auth_algs;
  	params->wpa_version = hapd->conf->wpa;
  	params->privacy = hapd->conf->wpa;
-Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+Index: hostapd/src/ap/drv_callbacks.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/drv_callbacks.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+--- hostapd.orig/src/ap/drv_callbacks.c
++++ hostapd/src/ap/drv_callbacks.c
 @@ -378,6 +378,8 @@ int hostapd_notif_assoc(struct hostapd_d
  		}
  		wpa_auth_set_rsn_override(sta->wpa_sm,
@@ -195,10 +206,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
  #ifdef CONFIG_MTK_IEEE80211BE
  		ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len);
  #endif
-Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+Index: hostapd/src/ap/ieee802_11.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/ieee802_11.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+--- hostapd.orig/src/ap/ieee802_11.c
++++ hostapd/src/ap/ieee802_11.c
 @@ -2059,8 +2059,8 @@ void handle_auth_fils(struct hostapd_dat
  	if (resp != WLAN_STATUS_SUCCESS)
  		goto fail;
@@ -239,7 +250,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  		    wpa_auth_sta_key_mgmt(sta->wpa_sm) == WPA_KEY_MGMT_OWE &&
  		    elems.owe_dh) {
  			resp = owe_process_assoc_req(hapd, sta, elems.owe_dh,
-@@ -5239,7 +5243,8 @@ static u16 send_assoc_resp(struct hostap
+@@ -5237,7 +5241,8 @@ static u16 send_assoc_resp(struct hostap
  		buflen += 150;
  #endif /* CONFIG_FILS */
  #ifdef CONFIG_OWE
@@ -249,7 +260,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  		buflen += 150;
  #endif /* CONFIG_OWE */
  #ifdef CONFIG_DPP2
-@@ -5327,7 +5332,8 @@ static u16 send_assoc_resp(struct hostap
+@@ -5325,7 +5330,8 @@ static u16 send_assoc_resp(struct hostap
  
  #ifdef CONFIG_OWE
  	if (sta && status_code == WLAN_STATUS_SUCCESS &&
@@ -259,7 +270,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  		p = wpa_auth_write_assoc_resp_owe(sta->wpa_sm, p,
  						  buf + buflen - p,
  						  ies, ies_len);
-@@ -5413,7 +5419,8 @@ rsnxe_done:
+@@ -5411,7 +5417,8 @@ rsnxe_done:
  #endif /* CONFIG_IEEE80211BE */
  
  #ifdef CONFIG_OWE
@@ -269,10 +280,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
  	    sta && sta->owe_ecdh && status_code == WLAN_STATUS_SUCCESS &&
  	    wpa_auth_sta_key_mgmt(sta->wpa_sm) == WPA_KEY_MGMT_OWE &&
  	    !wpa_auth_sta_get_pmksa(sta->wpa_sm)) {
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+Index: hostapd/src/ap/wpa_auth.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
 @@ -772,6 +772,7 @@ void wpa_deinit(struct wpa_authenticator
  
  	os_free(wpa_auth->wpa_ie);
@@ -281,7 +292,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  	os_free(wpa_auth->rsnxe_override);
  
  	group = wpa_auth->group;
-@@ -3679,8 +3680,11 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
+@@ -3677,8 +3678,11 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
  			wpa_ie = wpa_ie + wpa_ie[1] + 2;
  		wpa_ie_len = wpa_ie[1] + 2;
  	}
@@ -295,7 +306,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  		const u8 *mde, *fte, *tie, *tie2 = NULL;
  		const u8 *override_rsne = NULL, *override_rsnxe = NULL;
  		const struct element *elem;
-@@ -3700,7 +3704,9 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
+@@ -3698,7 +3702,9 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
  				    wpa_ie, wpa_ie_len) {
  			if (elem->datalen >= 4) {
  				if (WPA_GET_BE32(elem->data) ==
@@ -306,7 +317,7 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  					override_rsne = &elem->id;
  				if (WPA_GET_BE32(elem->data) ==
  				    RSNXE_OVERRIDE_IE_VENDOR_TYPE)
-@@ -5849,6 +5855,11 @@ void wpa_auth_set_rsn_override(struct wp
+@@ -5863,6 +5869,11 @@ void wpa_auth_set_rsn_override(struct wp
  		sm->rsn_override = val;
  }
  
@@ -318,10 +329,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
  
  #ifdef CONFIG_DPP2
  void wpa_auth_set_dpp_z(struct wpa_state_machine *sm, const struct wpabuf *z)
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
+Index: hostapd/src/ap/wpa_auth.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
+--- hostapd.orig/src/ap/wpa_auth.h
++++ hostapd/src/ap/wpa_auth.h
 @@ -176,6 +176,7 @@ struct wpa_auth_config {
  	int extended_key_id;
  	int wpa_key_mgmt;
@@ -354,10 +365,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
  void wpa_auth_set_dpp_z(struct wpa_state_machine *sm, const struct wpabuf *z);
  void wpa_auth_set_transition_disable(struct wpa_authenticator *wpa_auth,
  				     u8 val);
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_glue.c
+Index: hostapd/src/ap/wpa_auth_glue.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_glue.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_glue.c
+--- hostapd.orig/src/ap/wpa_auth_glue.c
++++ hostapd/src/ap/wpa_auth_glue.c
 @@ -46,6 +46,7 @@ static void hostapd_wpa_auth_conf(struct
  	wconf->extended_key_id = conf->extended_key_id;
  	wconf->wpa_key_mgmt = conf->wpa_key_mgmt;
@@ -400,10 +411,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_glue.c
  		struct rsn_pmksa_cache_entry *sa;
  
  		sa = wpa_auth_sta_get_pmksa(sta->wpa_sm);
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+Index: hostapd/src/ap/wpa_auth_i.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_i.h
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+--- hostapd.orig/src/ap/wpa_auth_i.h
++++ hostapd/src/ap/wpa_auth_i.h
 @@ -136,6 +136,7 @@ struct wpa_state_machine {
  	u32 dot11RSNAStatsTKIPRemoteMICFailures;
  
@@ -420,10 +431,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
  	u8 *rsnxe_override; /* RSNXE with overridden payload */
  
  	u8 addr[ETH_ALEN];
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ie.c
+Index: hostapd/src/ap/wpa_auth_ie.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ie.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ie.c
+--- hostapd.orig/src/ap/wpa_auth_ie.c
++++ hostapd/src/ap/wpa_auth_ie.c
 @@ -452,6 +452,34 @@ static int wpa_write_rsne_override(struc
  	return pos - buf;
  }
@@ -536,10 +547,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ie.c
  	else
  		ciphers = data.pairwise_cipher & wpa_auth->conf.wpa_pairwise;
  	if (!ciphers) {
-Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.c
+Index: hostapd/src/common/ieee802_11_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/ieee802_11_common.c
-+++ hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.c
+--- hostapd.orig/src/common/ieee802_11_common.c
++++ hostapd/src/common/ieee802_11_common.c
 @@ -144,6 +144,10 @@ static int ieee802_11_parse_vendor_speci
  			elems->rsne_override = pos;
  			elems->rsne_override_len = elen;
@@ -551,10 +562,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.c
  		default:
  			wpa_printf(MSG_MSGDUMP, "Unknown WFA "
  				   "information element ignored "
-Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.h
+Index: hostapd/src/common/ieee802_11_common.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/ieee802_11_common.h
-+++ hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.h
+--- hostapd.orig/src/common/ieee802_11_common.h
++++ hostapd/src/common/ieee802_11_common.h
 @@ -124,6 +124,7 @@ struct ieee802_11_elems {
  	const u8 *ml;
  #endif
@@ -571,10 +582,10 @@ Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_common.h
  
  	struct mb_ies_info mb_ies;
  	struct frag_ies_info frag_ies;
-Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_defs.h
+Index: hostapd/src/common/ieee802_11_defs.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/ieee802_11_defs.h
-+++ hostapd-2022-07-29-b704dc72/src/common/ieee802_11_defs.h
+--- hostapd.orig/src/common/ieee802_11_defs.h
++++ hostapd/src/common/ieee802_11_defs.h
 @@ -1377,15 +1377,12 @@ struct ieee80211_ampe_ie {
  #define QM_IE_OUI_TYPE 0x22
  #define WFA_CAPA_IE_VENDOR_TYPE 0x506f9a23
@@ -597,11 +608,11 @@ Index: hostapd-2022-07-29-b704dc72/src/common/ieee802_11_defs.h
  
  #define MULTI_AP_SUB_ELEM_TYPE 0x06
  #define MULTI_AP_TEAR_DOWN BIT(4)
-Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+Index: hostapd/src/common/wpa_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
-+++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
-@@ -1990,7 +1990,9 @@ int wpa_parse_wpa_ie_rsn(const u8 *rsn_i
+--- hostapd.orig/src/common/wpa_common.c
++++ hostapd/src/common/wpa_common.c
+@@ -1999,7 +1999,9 @@ int wpa_parse_wpa_ie_rsn(const u8 *rsn_i
  		data->proto = WPA_PROTO_OSEN;
  	} else if (rsn_ie_len >= 2 + 4 + 2 && rsn_ie[1] >= 4 + 2 &&
  		   rsn_ie[1] == rsn_ie_len - 2 &&
@@ -612,11 +623,11 @@ Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
  		   WPA_GET_LE16(&rsn_ie[2 + 4]) == RSN_VERSION) {
  		pos = rsn_ie + 2 + 4 + 2;
  		left = rsn_ie_len - 2 - 4 - 2;
-Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211_capa.c
+Index: hostapd/src/drivers/driver_nl80211_capa.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211_capa.c
-+++ hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211_capa.c
-@@ -1364,6 +1364,7 @@ int wpa_driver_nl80211_capa(struct wpa_d
+--- hostapd.orig/src/drivers/driver_nl80211_capa.c
++++ hostapd/src/drivers/driver_nl80211_capa.c
+@@ -1354,6 +1354,7 @@ int wpa_driver_nl80211_capa(struct wpa_d
  			WPA_DRIVER_CAPA_KEY_MGMT_WPA_PSK |
  			WPA_DRIVER_CAPA_KEY_MGMT_WPA2 |
  			WPA_DRIVER_CAPA_KEY_MGMT_WPA2_PSK |
@@ -624,7 +635,7 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211_capa.c
  			WPA_DRIVER_CAPA_KEY_MGMT_SUITE_B |
  			WPA_DRIVER_CAPA_KEY_MGMT_OWE |
  			WPA_DRIVER_CAPA_KEY_MGMT_DPP;
-@@ -1379,6 +1380,7 @@ int wpa_driver_nl80211_capa(struct wpa_d
+@@ -1369,6 +1370,7 @@ int wpa_driver_nl80211_capa(struct wpa_d
  				WPA_DRIVER_CAPA_KEY_MGMT_FILS_SHA384 |
  				WPA_DRIVER_CAPA_KEY_MGMT_FT_FILS_SHA256 |
  				WPA_DRIVER_CAPA_KEY_MGMT_FT_FILS_SHA384 |
@@ -632,24 +643,24 @@ Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211_capa.c
  				WPA_DRIVER_CAPA_KEY_MGMT_SAE;
  		else if (drv->capa.flags & WPA_DRIVER_FLAGS_FILS_SK_OFFLOAD)
  			drv->capa.key_mgmt |=
-Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+Index: hostapd/src/ml/ml_common.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ml/ml_common.c
-+++ hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
-@@ -988,7 +988,11 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+--- hostapd.orig/src/ml/ml_common.c
++++ hostapd/src/ml/ml_common.c
+@@ -977,7 +977,11 @@ u8* ml_add_m3_kde(struct wpa_state_machi
  			return NULL;
  		}
  
 -		if (get_vendor_ie(auth->wpa_ie, auth->wpa_ie_len, RSNE_OVERRIDE_IE_VENDOR_TYPE)) {
 +		wpa_printf(MSG_INFO, "ML: rsn_override:%d, rsn_override_2:%d", sm->rsn_override, sm->rsn_override_2);
-+		if ((sm->rsn_override && 
++		if ((sm->rsn_override &&
 +			get_vendor_ie(auth->wpa_ie, auth->wpa_ie_len, RSNE_OVERRIDE_IE_VENDOR_TYPE)) ||
-+			(sm->rsn_override_2 && 
++			(sm->rsn_override_2 &&
 +			get_vendor_ie(auth->wpa_ie, auth->wpa_ie_len, RSNE_OVERRIDE_2_IE_VENDOR_TYPE))) {
  			const u8 *override_rsne = NULL, *override_rsnxe = NULL;
  			const struct element *elem;
  
-@@ -996,7 +1000,9 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+@@ -985,7 +989,9 @@ u8* ml_add_m3_kde(struct wpa_state_machi
  				    auth->wpa_ie, auth->wpa_ie_len) {
  				if (elem->datalen >= 4) {
  					if (WPA_GET_BE32(elem->data) ==
@@ -660,10 +671,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
  						override_rsne = &elem->id;
  					if (WPA_GET_BE32(elem->data) ==
  					    RSNXE_OVERRIDE_IE_VENDOR_TYPE)
-Index: hostapd-2022-07-29-b704dc72/src/ml/ml_supplicant.c
+Index: hostapd/src/ml/ml_supplicant.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ml/ml_supplicant.c
-+++ hostapd-2022-07-29-b704dc72/src/ml/ml_supplicant.c
+--- hostapd.orig/src/ml/ml_supplicant.c
++++ hostapd/src/ml/ml_supplicant.c
 @@ -479,6 +479,12 @@ static int ml_get_wpa_ie(struct wpa_supp
  
  	os_memset(wpa, 0, sizeof(*wpa));
@@ -677,10 +688,10 @@ Index: hostapd-2022-07-29-b704dc72/src/ml/ml_supplicant.c
  	ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_IE_VENDOR_TYPE);
  	if (ie) {
  		wpa_printf(MSG_INFO, "ML: AP is in RSNO mode");
-Index: hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ie.c
+Index: hostapd/src/rsn_supp/wpa_ie.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/rsn_supp/wpa_ie.c
-+++ hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ie.c
+--- hostapd.orig/src/rsn_supp/wpa_ie.c
++++ hostapd/src/rsn_supp/wpa_ie.c
 @@ -33,12 +33,15 @@ int wpa_parse_wpa_ie(const u8 *wpa_ie, s
  	if (wpa_ie_len >= 6 && wpa_ie[0] == WLAN_EID_VENDOR_SPECIFIC &&
  		wpa_ie[1] >= 4 && WPA_GET_BE32(&wpa_ie[2]) == OSEN_IE_VENDOR_TYPE)
@@ -702,10 +713,10 @@ Index: hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ie.c
  }
  
  
-Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/bss.c
+Index: hostapd/wpa_supplicant/bss.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/bss.c
-+++ hostapd-2022-07-29-b704dc72/wpa_supplicant/bss.c
+--- hostapd.orig/wpa_supplicant/bss.c
++++ hostapd/wpa_supplicant/bss.c
 @@ -1434,6 +1434,9 @@ const u8 * wpa_bss_get_rsne(const struct
  		return wpa_bss_get_ie(bss, WLAN_EID_RSN);
  #endif /* CONFIG_TESTING_OPTIONS */
@@ -716,11 +727,11 @@ Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/bss.c
  	ie = wpa_bss_get_vendor_ie(bss, RSNE_OVERRIDE_IE_VENDOR_TYPE);
  	if (ie)
  		return ie;
-Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/events.c
+Index: hostapd/wpa_supplicant/events.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/events.c
-+++ hostapd-2022-07-29-b704dc72/wpa_supplicant/events.c
-@@ -3214,6 +3214,13 @@ no_pfs:
+--- hostapd.orig/wpa_supplicant/events.c
++++ hostapd/wpa_supplicant/events.c
+@@ -3203,6 +3203,13 @@ no_pfs:
  		}
  
  		if (p[0] == WLAN_EID_VENDOR_SPECIFIC && p[1] >= 6 &&
@@ -734,11 +745,11 @@ Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/events.c
  		    WPA_GET_BE32(&p[2]) == RSNE_OVERRIDE_IE_VENDOR_TYPE) {
  			rsn_found = 1;
  			wpa_sm_set_ap_rsn_ie(wpa_s->wpa, p, len);
-Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/sme.c
+Index: hostapd/wpa_supplicant/sme.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/sme.c
-+++ hostapd-2022-07-29-b704dc72/wpa_supplicant/sme.c
-@@ -2145,6 +2145,20 @@ mscs_fail:
+--- hostapd.orig/wpa_supplicant/sme.c
++++ hostapd/wpa_supplicant/sme.c
+@@ -2099,6 +2099,20 @@ mscs_fail:
  #endif /* CONFIG_TESTING_OPTIONS */
  	if (wpa_s->current_bss &&
  	    wpa_bss_get_vendor_ie(wpa_s->current_bss,
@@ -759,24 +770,24 @@ Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/sme.c
  				  RSNE_OVERRIDE_IE_VENDOR_TYPE) &&
  	    wpa_s->sme.assoc_req_ie_len + 2 + 4 <=
  	    sizeof(wpa_s->sme.assoc_req_ie)) {
-@@ -2155,7 +2169,11 @@ mscs_fail:
+@@ -2109,7 +2123,11 @@ mscs_fail:
  		*pos++ = 4;
  		WPA_PUT_BE32(pos, RSNE_OVERRIDE_IE_VENDOR_TYPE);
  		wpa_s->sme.assoc_req_ie_len += 2 + 4;
 -	}
 +		wpa_printf(MSG_INFO,
 +				   "support for RSN overriding");
-+	} else 
++	} else
 +		wpa_printf(MSG_INFO,
 +				   "it is normal flow, not RSN overriding flow");
  
  #ifdef CONFIG_TESTING_OPTIONS
  skip_rsne_override:
-Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_supplicant.c
+Index: hostapd/wpa_supplicant/wpa_supplicant.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/wpa_supplicant.c
-+++ hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_supplicant.c
-@@ -3538,6 +3538,19 @@ mscs_end:
+--- hostapd.orig/wpa_supplicant/wpa_supplicant.c
++++ hostapd/wpa_supplicant/wpa_supplicant.c
+@@ -3525,6 +3525,19 @@ mscs_end:
  		wpa_ie_len += 2 + 4;
  	}
  
@@ -796,11 +807,11 @@ Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_supplicant.c
  	params->wpa_ie = wpa_ie;
  	params->wpa_ie_len = wpa_ie_len;
  	params->auth_alg = algs;
-Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_supplicant_i.h
+Index: hostapd/wpa_supplicant/wpa_supplicant_i.h
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/wpa_supplicant_i.h
-+++ hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_supplicant_i.h
-@@ -930,6 +930,7 @@ struct wpa_supplicant {
+--- hostapd.orig/wpa_supplicant/wpa_supplicant_i.h
++++ hostapd/wpa_supplicant/wpa_supplicant_i.h
+@@ -927,6 +927,7 @@ struct wpa_supplicant {
  	u64 drv_flags;
  	u64 drv_flags2;
  	unsigned int drv_enc;

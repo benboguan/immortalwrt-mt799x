@@ -1,0 +1,19 @@
+diff --git a/src/ap/wpa_auth_ft.c b/src/ap/wpa_auth_ft.c
+index 92038f3..21111ab 100644
+--- a/src/ap/wpa_auth_ft.c
++++ b/src/ap/wpa_auth_ft.c
+@@ -4812,10 +4812,10 @@ static int wpa_ft_rrb_rx_r1(struct wpa_authenticator *wpa_auth,
+ 		if (wpa_ft_rrb_decrypt(key, key_len, enc, enc_len, auth, auth_len,
+ 					src_addr, type, &plain, &plain_len) < 0)
+ 			goto out;
+-
+-		r0kh = wpa_ft_rrb_add_r0kh(wpa_auth, r0kh_wildcard, src_addr,
+-				f_r0kh_id, f_r0kh_id_len,
+-				wpa_auth->conf.rkh_pos_timeout);
++		if (!r0kh)
++			r0kh = wpa_ft_rrb_add_r0kh(wpa_auth, r0kh_wildcard, src_addr,
++					f_r0kh_id, f_r0kh_id_len,
++					wpa_auth->conf.rkh_pos_timeout);
+ 		if (!r0kh)
+ 			goto out;
+ 

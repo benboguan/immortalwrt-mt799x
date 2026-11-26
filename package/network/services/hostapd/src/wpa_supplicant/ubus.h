@@ -24,6 +24,7 @@ struct wpas_ubus_bss {
 void wpas_ubus_add_bss(struct wpa_supplicant *wpa_s);
 void wpas_ubus_free_bss(struct wpa_supplicant *wpa_s);
 
+bool wpas_ubus_object_exists(void);
 void wpas_ubus_add(struct wpa_global *global);
 void wpas_ubus_free(struct wpa_global *global);
 
@@ -39,6 +40,10 @@ static inline void wpas_ubus_add_iface(struct wpa_supplicant *wpa_s)
 }
 
 static inline void wpas_ubus_free_iface(struct wpa_supplicant *wpa_s)
+{
+}
+
+bool wpas_ubus_object_exists(void)
 {
 }
 

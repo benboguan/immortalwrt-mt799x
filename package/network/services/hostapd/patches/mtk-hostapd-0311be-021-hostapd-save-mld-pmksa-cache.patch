@@ -1,8 +1,8 @@
-Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+Index: hostapd/src/ap/wpa_auth.c
 ===================================================================
---- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
-+++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
-@@ -5117,14 +5117,54 @@ int wpa_auth_pmksa_add_sae(struct wpa_au
+--- hostapd.orig/src/ap/wpa_auth.c
++++ hostapd/src/ap/wpa_auth.c
+@@ -5180,14 +5180,51 @@ int wpa_auth_pmksa_add_sae(struct wpa_au
  	wpa_hexdump_key(MSG_DEBUG, "RSN: Cache PMK from SAE", pmk, pmk_len);
  	if (!akmp)
  		akmp = WPA_KEY_MGMT_SAE;
@@ -29,9 +29,6 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
 +			wpa_printf(MSG_INFO, "ML: mlo case to add pmksa");
 +			for (i = 0; i < ml_group->ml_link_num; i++) {
 +				link = &ml_group->links[i];
-+				if (link == NULL)
-+					continue;
-+
 +				auth = ((struct hostapd_data *)link->ctx)->wpa_auth;
 +				wpa_printf(MSG_INFO, "ML: wpa_auth:%p peer MLD MAC is (" MACSTR ") ", auth, MAC2STR(addr));
 +				if (auth) {

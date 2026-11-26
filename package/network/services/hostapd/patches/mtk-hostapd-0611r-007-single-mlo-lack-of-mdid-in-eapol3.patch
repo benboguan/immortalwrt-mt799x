@@ -1,0 +1,24 @@
+Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ml/ml_common.c
++++ hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+@@ -1049,6 +1049,7 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+ 	struct wpa_ml_group *ml_group = NULL;
+ 	struct wpa_ml_link *link;
+ 	u8 i,j;
++	u8 k = 0;
+ 
+ 	if (!sm->dot11MultiLinkActivated)
+ 		return pos;
+@@ -1123,9 +1124,10 @@ u8* ml_add_m3_kde(struct wpa_state_machi
+ 
+ 			wpa_hexdump(MSG_MSGDUMP, "ML: MDE", mde, mde_len);
+ 
+-			if (mde && i == 0) {
++			if (mde && k == 0) {
+ 				os_memcpy(pos, mde, mde_len);
+ 				pos += mde_len;
++				k++;
+ 			}
+ 
+ 			/* Add PMKR1Name into RSN IE (PMKID-List) */
