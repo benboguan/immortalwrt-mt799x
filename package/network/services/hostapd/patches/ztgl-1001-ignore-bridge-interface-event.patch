@@ -9,9 +9,9 @@ Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
 -		if (!os_strcmp(hapd_iface->conf->bss[0]->iface, buf)) {
 +		if (!os_strcmp(hapd_iface->phy, buf) ||
 +		    !os_strcmp(hapd_iface->conf->bss[0]->iface, buf)) {
- 			wpa_printf(MSG_INFO, "Remove interface '%s',interfaces all count '%zu', state=%d",
- 				buf, interfaces->count, hapd_iface->state);
- 			/* not enabled interface can not switch */
+ 			wpa_printf(MSG_INFO, "Remove interface '%s',interfaces all count '%zu' ", buf, interfaces->count);
+ 			if (hapd_iface->conf->num_bss == 1) {
+ 				wpa_printf(MSG_INFO, "Remove interface '%s'",
 Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
 ===================================================================
 --- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211.c

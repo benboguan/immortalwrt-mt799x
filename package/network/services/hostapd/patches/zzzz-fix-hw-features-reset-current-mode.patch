@@ -1,0 +1,32 @@
+--- a/src/ap/hw_features.c
++++ b/src/ap/hw_features.c
+@@ -76,6 +76,6 @@ int hostapd_get_hw_features(struct hostapd_iface *iface)
+ {
+ 	struct hostapd_data *hapd = iface->bss[0];
+-	int i, j;
++	int i, j, cur_mode = -1;
+ 	u16 num_modes, flags;
+ 	struct hostapd_hw_modes *modes;
+ 	u8 dfs_domain;
+@@ -95,8 +95,21 @@
+ 	iface->hw_flags = flags;
+ 	iface->dfs_domain = dfs_domain;
+ 
++	if (iface->current_mode)
++		cur_mode = iface->current_mode->mode;
++
+ 	hostapd_free_hw_features(iface->hw_features, iface->num_hw_features);
+ 	iface->hw_features = modes;
+ 	iface->num_hw_features = num_modes;
+ 
++	iface->current_mode = NULL;
++	if (cur_mode >= 0) {
++		for (i = 0; i < num_modes; i++) {
++			if ((int) modes[i].mode == cur_mode) {
++				iface->current_mode = &modes[i];
++				break;
++			}
++		}
++	}
++
+ 	for (i = 0; i < num_modes; i++) {

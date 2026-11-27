@@ -208,6 +208,37 @@ bss_reload_vlans(struct hostapd_data *hapd, struct hostapd_bss_config *bss)
 	return 0;
 }
 
+static void
+__uc_hostapd_bss_stop(struct hostapd_data *hapd)
+{
+	struct hostapd_iface *iface = hapd->iface;
+
+	if (!hapd->started)
+		return;
+
+	hostapd_bss_deinit_no_free(hapd);
+	hostapd_drv_stop_ap(hapd);
+
+	hostapd_free_hapd_data(hapd);
+}
+
+static int
+__uc_hostapd_bss_start(struct hostapd_data *hapd)
+{
+	struct hostapd_iface *iface = hapd->iface;
+	bool first = hapd == iface->bss[0];
+	int ret;
+
+	if (hapd->started)
+		return 0;
+
+	ret = hostapd_setup_bss(hapd, first);
+	hostapd_neighbor_set_own_report(hapd, hapd);
+	hostapd_owe_update_trans(iface);
+
+	return ret;
+}
+
 static uc_value_t *
 uc_hostapd_bss_set_config(uc_vm_t *vm, size_t nargs)
 {
@@ -220,6 +251,7 @@ uc_hostapd_bss_set_config(uc_vm_t *vm, size_t nargs)
 	uc_value_t *files_only = uc_fn_arg(2);
 	unsigned int i, idx = 0;
 	int ret = -1;
+	bool started;
 
 	if (!hapd || ucv_type(file) != UC_STRING)
 		goto out;
@@ -248,12 +280,11 @@ uc_hostapd_bss_set_config(uc_vm_t *vm, size_t nargs)
 
 		swap_field(ssid.wpa_psk_file);
 		ret = bss_reload_vlans(hapd, bss);
-		goto done;
+		goto free;
 	}
 
-	hostapd_bss_deinit_no_free(hapd);
-	hostapd_drv_stop_ap(hapd);
-	hostapd_free_hapd_data(hapd);
+	started = hapd->started;
+	__uc_hostapd_bss_stop(hapd);
 
 	old_bss = hapd->conf;
 	for (i = 0; i < iface->conf->num_bss; i++)
@@ -265,13 +296,12 @@ uc_hostapd_bss_set_config(uc_vm_t *vm, size_t nargs)
 	if (hapd == iface->bss[0])
 		memcpy(hapd->own_addr, hapd->conf->bssid, ETH_ALEN);
 
-	hostapd_setup_bss(hapd, hapd == iface->bss[0]);
-	hostapd_neighbor_set_own_report(hapd, hapd);
+	if (started)
+		ret = __uc_hostapd_bss_start(hapd);
+	else
+		ret = 0;
 	hostapd_ucode_update_interfaces();
-	hostapd_owe_update_trans(iface);
 
-done:
-	ret = 0;
 free:
 	hostapd_config_free(conf);
 out:
@@ -562,10 +592,8 @@ uc_hostapd_iface_start(uc_vm_t *vm, size_t nargs)
 	if (!iface)
 		return NULL;
 
-	if (!info) {
-		iface->freq = 0;
+	if (!info)
 		goto out;
-	}
 
 	if (ucv_type(info) != UC_OBJECT)
 		return NULL;
@@ -948,6 +976,8 @@ int hostapd_ucode_init(struct hapd_interfaces *ifaces)
 	uc_vm_registry_set(vm, "hostap.iface_registry", iface_registry);
 
 	global = wpa_ucode_global_init("hostapd", global_type);
+
+	hostapd_ucode_update_interfaces();
 
 	if (wpa_ucode_run(HOSTAPD_UC_PATH "hostapd.uc"))
 		goto free_vm;

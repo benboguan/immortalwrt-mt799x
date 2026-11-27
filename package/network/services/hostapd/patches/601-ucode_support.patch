@@ -99,7 +99,7 @@ as adding/removing interfaces.
  #include "p2p_supplicant.h"
  #include "wps_supplicant.h"
  #include "ubus.h"
-+//#include "ucode.h"
++#include "ucode.h"
  
  
  #ifndef WPS_PIN_SCAN_IGNORE_SEL_REG
@@ -107,7 +107,7 @@ as adding/removing interfaces.
  			cred->cred_attr, cred->cred_attr_len);
  
  	wpas_ubus_notify(wpa_s, cred);
-+	//wpas_ucode_wps_complete(wpa_s, cred);
++	wpas_ucode_wps_complete(wpa_s, cred);
  
  	if (wpa_s->conf->wps_cred_processing == 1)
  		return 0;
