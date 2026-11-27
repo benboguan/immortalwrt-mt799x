@@ -1,0 +1,84 @@
+From: mtwifi-scripts
+Subject: [PATCH] switch_layer: clear mt753x hooks when no switch chip is detected
+
+  H5000M（MT7992E/MT7987，SoC MAC + RTL8221B / MT7987
+
+  switch_get_chip_name_by_file()  -> /proc/air_sw/device /proc/device-tree/compatible
+  switch_hooks_register()         -> chip default
+  switch_layer_init()             -> is_chip_valid() false，reg，warn
+                                     "no chip unsupport or chip id is invalid!" -> goto fail
+
+--- a/ethernet/common/switch_layer.c
++++ b/ethernet/common/switch_layer.c
+@@ -525,6 +525,29 @@
+ #endif
+ }
+ 
++static void switch_hooks_unregister(void)
++{
++	func_netlink_init		= NULL;
++	func_get_switch_mode	= NULL;
++	func_get_port_status	= NULL;
++	func_get_port_speed		= NULL;
++	func_get_phy_speed		= NULL;
++	func_set_port_block		= NULL;
++	func_defalut_setting	= NULL;
++	func_acl_enable			= NULL;
++	func_set_wan_rule		= NULL;
++	func_set_lan_rule		= NULL;
++	func_port_find_by_mac	= NULL;
++	func_port_find_by_mac_fid = NULL;
++	func_get_port_type		= NULL;
++	func_get_table_entry	= NULL;
++	func_clear_table		= NULL;
++	func_clear_port_table	= NULL;
++	func_vlan_set			= NULL;
++	func_get_lan_wan_portmaps = NULL;
++	func_switch_deinit		= NULL;
++}
++
+ 
+ int switch_get_phy_speed(unsigned char port)
+ {
+@@ -692,6 +715,8 @@
+ 
+ 	return err;
+ fail:
++	switch_hooks_unregister();
++
+ 	if (arl.lan_vid)
+ 		os_free(arl.lan_vid);
+ 	if (arl.wan_vid)
+--- a/ethernet/common/switch_layer_mt753x.c
++++ b/ethernet/common/switch_layer_mt753x.c
+@@ -87,6 +87,10 @@
+ 	int value = 0;
+ 	struct switch_attr attr;
+ 
++	if (!is_chip_valid()) {
++		return -1;
++	}
++
+ 	memset(&attr, 0, sizeof(attr));
+ 	attr.dev_id = -1;
+ 	attr.port_num = -1;
+@@ -114,6 +118,9 @@
+ 	int ret = 0;
+ 	int addr = 0;
+ 	unsigned int phy_speed = 0;
++
++	if (!is_chip_valid())
++		return -1;
+ 
+ 	ret = mt753x_get_port_status(port, &status);
+ 	if ((ret == 0) && (!status)) {
+@@ -156,6 +163,9 @@
+ 	int value = 0, value1 = 0;
+ 	int ret = 0;
+ 	int speed = 0;
++
++	if (!is_chip_valid())
++		return -1;
+ 
+ 	ret = mii_cl22_read_phy(port, 0xa, &value);
+ 	if (ret < 0) {
