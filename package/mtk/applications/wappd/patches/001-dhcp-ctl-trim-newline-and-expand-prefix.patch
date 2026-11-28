@@ -1,0 +1,65 @@
+diff --git a/dhcp_ctl/dhcp_ctl.c b/dhcp_ctl/dhcp_ctl.c
+index 480e46f..7c61dab 100644
+--- a/dhcp_ctl/dhcp_ctl.c
++++ b/dhcp_ctl/dhcp_ctl.c
+@@ -165,6 +165,44 @@ static int get_br_defalut_ip(char *ip_buf)
+ 	return 0;
+ }
+ 
++/*
++ * uci prints "value\n" and netifd accepts "ipaddr='a.b.c.d/nn'", but every shell
++ * snippet below feeds the value to busybox "ifconfig", which only takes a bare
++ * address. Two things break otherwise:
++ *   - "a.b.c.d/nn"  -> "ifconfig: bad address 'a.b.c.d/nn'"
++ *   - the newline fgets keeps -> the command is split in two and the trailing
++ *     "up" is executed as a command of its own: "sh: up: not found"
++ * Trim the newline and expand an optional "/nn" into an explicit netmask.
++ */
++static void sanitize_br_ip(char *ip_buf, size_t len)
++{
++	char addr[INET_ADDRSTRLEN] = {0};
++	char *slash;
++	long prefix;
++	unsigned long mask;
++
++	ip_buf[strcspn(ip_buf, "\r\n")] = '\0';
++
++	slash = strchr(ip_buf, '/');
++	if (slash == NULL || slash == ip_buf)
++		return;
++
++	if ((size_t)(slash - ip_buf) >= sizeof(addr))
++		return;
++	memcpy(addr, ip_buf, (size_t)(slash - ip_buf));
++
++	prefix = strtol(slash + 1, NULL, 10);
++	if (prefix < 0 || prefix > 32) {
++		*slash = '\0';	/* unusable prefix: fall back to the bare address */
++		return;
++	}
++
++	mask = (prefix == 0) ? 0UL : (0xffffffffUL << (32 - (int)prefix));
++	snprintf(ip_buf, len, "%s netmask %lu.%lu.%lu.%lu", addr,
++		 (mask >> 24) & 0xffUL, (mask >> 16) & 0xffUL,
++		 (mask >> 8) & 0xffUL, mask & 0xffUL);
++}
++
+ /*************************************************
+  *
+  *Function name : set_br_default_ip
+@@ -197,6 +235,7 @@ int set_br_default_ip(char *br_name)
+ 		err(DEBUG_CAT_MISC, "[DHCP]Set Default ip: 192.168.1.1\n");
+ 		memcpy(br_ip_str, "192.168.1.1", strlen("192.168.1.1"));
+ 	}
++	sanitize_br_ip(br_ip_str, sizeof(br_ip_str));
+ 
+ 	ret = os_snprintf(cmd, sizeof(cmd), "ifconfig %s %s up;", br_name, br_ip_str);
+ 	if (os_snprintf_error(sizeof(cmd), ret)) {
+@@ -352,6 +391,7 @@ int enable_dhcp_server(char *br_name)
+ 		err(DEBUG_CAT_MISC, "[DHCP]Set Default ip: 192.168.1.1\n");
+ 		memcpy(br_ip_str, "192.168.1.1", strlen("192.168.1.1"));
+ 	}
++	sanitize_br_ip(br_ip_str, sizeof(br_ip_str));
+ 
+ 	ret = os_snprintf(cmd, sizeof(cmd), "ifconfig %s %s up; uci delete dhcp.lan.ignore; uci commit dhcp; /etc/init.d/dnsmasq reload",
+ 			  br_name, br_ip_str);
