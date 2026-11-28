@@ -1121,6 +1121,7 @@ static void mtk_ppe_dev_hook(const char *name, int toggle)
 		} else {
 			mtk_ppe_dev_unregister_hook(dev);
 		}
+		dev_put(dev);
 	}
 	return;
 }

@@ -11,11 +11,14 @@
  *   Copyright (C) 2016-2017 John Crispin <blogic@openwrt.org>
  */
 
+#include <linux/bitfield.h>
 #include <linux/netfilter_bridge.h>
 #include <linux/netfilter_ipv6.h>
 #include <linux/if_bridge.h>
 
 #include <net/arp.h>
+#include <net/dsfield.h>
+#include <net/inet_dscp.h>
 #include <net/neighbour.h>
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <net/netfilter/nf_flow_table.h>
@@ -1222,36 +1225,166 @@ static int hnat_ipv6_addr_equal(u32 *foe_ipv6_ptr, const struct in6_addr *target
 	return ipv6_addr_equal(&foe_in6_addr, target);
 }
 
-static int hnat_get_hdr_protocol(struct sk_buff *skb, u16 *h_offset)
+/* Append a tag to hw_path as its innermost one */
+static int hnat_hw_path_add_vlan(struct flow_offload_hw_path *hw_path,
+				 __be16 proto, u16 tci)
 {
-	u16 h_proto, offset = 0;
+	if (hw_path->num_vlans >= ARRAY_SIZE(hw_path->vlan_id))
+		return -EPROTO;
 
-	h_proto = ntohs(skb->protocol);
+	hw_path->vlan_id[hw_path->num_vlans] = tci;
+	hw_path->vlan_proto[hw_path->num_vlans] = proto;
+	hw_path->num_vlans++;
 
-	if (h_proto == ETH_P_PPP_SES) {
+	return 0;
+}
+
+/* Check whether br_netfilter has currently pulled the @hlen byte @proto header
+ * (802.1Q or PPPoE session) behind the MAC header. orig_proto stays set after
+ * the header is pushed back, so the MAC header length is checked too.
+ */
+static bool hnat_brnf_pulled(const struct sk_buff *skb, __be16 proto, int hlen)
+{
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+	int brnf_proto;
+
+	if (proto == htons(ETH_P_8021Q))
+		brnf_proto = BRNF_PROTO_8021Q;
+	else if (proto == htons(ETH_P_PPP_SES))
+		brnf_proto = BRNF_PROTO_PPPOE;
+	else
+		return false;
+
+	return nf_bridge_info_exists(skb) &&
+	       nf_bridge_info_get(skb)->orig_proto == brnf_proto &&
+	       skb_mac_header_len(skb) == ETH_HLEN + hlen;
+#else
+	return false;
+#endif
+}
+
+/* Append the skb's VLAN tags, outer to inner (hw-accel tag first), to @hw_path.
+ * On success or -ENOENT, @encap_proto is the ethertype behind the tags and
+ * @encap_offset its offset from the end of the MAC header. All output
+ * arguments may be NULL.
+ *
+ * Return: 0 on success, -ENOENT if the skb has no MAC header, -EPROTO if the
+ * tags are malformed or don't fit in @hw_path.
+ */
+static int hnat_get_vlan_tags(struct sk_buff *skb,
+			      struct flow_offload_hw_path *hw_path,
+			      __be16 *encap_proto, int *encap_offset)
+{
+	int parse_depth = VLAN_MAX_DEPTH;
+	__be16 proto = skb->protocol;
+	int base, ret = 0;
+	int offset = 0;
+
+	/* hw-accel tag is inner to the egress device tags already in hw_path */
+	if (hw_path && skb_vlan_tag_present(skb) &&
+	    hnat_hw_path_add_vlan(hw_path, skb->vlan_proto,
+				  skb_vlan_tag_get(skb)))
+		return -EPROTO;
+
+	if (!skb_mac_header_was_set(skb) || skb_mac_header_len(skb) < ETH_HLEN) {
+		ret = -ENOENT;
+		goto out;
+	}
+
+	/* end of the MAC header, relative to skb->data */
+	base = skb_mac_offset(skb) + ETH_HLEN;
+
+	/* an in-band tag pulled by br_netfilter is still behind the MAC header */
+	if (hnat_brnf_pulled(skb, htons(ETH_P_8021Q), VLAN_HLEN))
+		proto = htons(ETH_P_8021Q);
+
+	/* in-band VLAN tags */
+	while (eth_type_vlan(proto)) {
+		struct vlan_hdr _vhdr, *vhdr;
+
+		if (!--parse_depth)
+			return -EPROTO;
+
+		vhdr = skb_header_pointer(skb, base + offset, sizeof(_vhdr),
+					  &_vhdr);
+		if (!vhdr)
+			return -EPROTO;
+
+		if (hw_path &&
+		    hnat_hw_path_add_vlan(hw_path, proto, ntohs(vhdr->h_vlan_TCI)))
+			return -EPROTO;
+
+		proto = vhdr->h_vlan_encapsulated_proto;
+		offset += VLAN_HLEN;
+	}
+
+out:
+	if (encap_proto)
+		*encap_proto = proto;
+	if (encap_offset)
+		*encap_offset = offset;
+
+	return ret;
+}
+
+static int hnat_get_hdr_protocol(struct sk_buff *skb, u16 *h_offset,
+				 struct flow_offload_hw_path *hw_path)
+{
+	int offset, ret;
+	int pulled = 0;
+	__be16 proto;
+
+	ret = hnat_get_vlan_tags(skb, hw_path, &proto, &offset);
+	if (ret == -ENOENT) {
+		/* No ethernet header: skb->protocol is already the L3 protocol */
+		*h_offset = 0;
+		return ntohs(proto);
+	}
+	if (ret)
+		return ret;
+
+	/* Bytes br_netfilter pulled in front of the network header. It pulls a
+	 * PPPoE session header only when no in-band tag precedes it.
+	 */
+	if (hnat_brnf_pulled(skb, htons(ETH_P_8021Q), VLAN_HLEN)) {
+		pulled = VLAN_HLEN;
+	} else if (hnat_brnf_pulled(skb, htons(ETH_P_PPP_SES), PPPOE_SES_HLEN)) {
+		proto = htons(ETH_P_PPP_SES);
+		pulled = PPPOE_SES_HLEN;
+	}
+
+	/* bridged PPPoE */
+	if (proto == htons(ETH_P_PPP_SES)) {
 		struct {
 			struct pppoe_hdr hdr;
 			__be16 proto;
-		} *hdr, _hdr;
+		} _ph, *ph;
 
-		hdr = skb_header_pointer(skb, offset, sizeof(_hdr), &_hdr);
-		if (!hdr)
+		ph = skb_header_pointer(skb, skb_mac_offset(skb) + ETH_HLEN + offset,
+					sizeof(_ph), &_ph);
+		if (!ph)
 			return -EPROTO;
 
-		h_proto = hdr->proto;
+		/* Record PPPoE session for binding */
+		if (hw_path) {
+			hw_path->flags |= BIT(DEV_PATH_PPPOE);
+			hw_path->pppoe_sid = ntohs(ph->hdr.sid);
+		}
+
+		proto = ph->proto;
 		offset += PPPOE_SES_HLEN;
 
-		if (h_proto == htons(PPP_IP))
-			h_proto = ETH_P_IP;
-		else if (h_proto == htons(PPP_IPV6))
-			h_proto = ETH_P_IPV6;
+		if (proto == htons(PPP_IP))
+			proto = htons(ETH_P_IP);
+		else if (proto == htons(PPP_IPV6))
+			proto = htons(ETH_P_IPV6);
 		else
 			return -EPROTO;
 	}
 
-	*h_offset = offset;
+	*h_offset = offset - pulled;
 
-	return h_proto;
+	return ntohs(proto);
 }
 
 static bool hnat_prot_3t_support(const struct hnat_prot_3t_cfg *prot_3t,
@@ -1282,6 +1415,7 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 	struct ipv6hdr *ip6h = NULL;
 	struct iphdr _iphdr;
 	u16 h_proto, h_offset = 0;
+	int ret;
 
 	if (unlikely(!skb))
 		return 0;
@@ -1299,7 +1433,11 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 	if (skb_hnat_ppe(skb) < CFG_PPE_NUM)
 		prot_3t = &hnat_priv->prot_3t[skb_hnat_ppe(skb)];
 
-	h_proto = hnat_get_hdr_protocol(skb, &h_offset);
+	/* malformed or too deeply tagged packets must not hit the l2br default */
+	ret = hnat_get_hdr_protocol(skb, &h_offset, NULL);
+	if (ret < 0)
+		return 0;
+	h_proto = ret;
 
 	switch (h_proto) {
 	case ETH_P_IP:
@@ -1355,8 +1493,6 @@ static unsigned int is_ppe_support_type(struct sk_buff *skb)
 			return 1;
 
 		break;
-	case ETH_P_8021Q:
-		return 1;
 	default:
 		if (l2br_toggle == 1)
 			return 1;
@@ -1676,7 +1812,8 @@ static int hnat_bridge_flood_check(struct sk_buff *skb,
 	}
 
 	hw_path.dev = br_dev;
-	hw_path.vlan_id = vid;
+	/* FDB lookup key only, not a tag to push: num_vlans stays 0 */
+	hw_path.vlan_id[0] = vid;
 	hw_path.flags |= BIT(DEV_PATH_ETHERNET);
 	ether_addr_copy(hw_path.eth_dest, eth_hdr(skb)->h_dest);
 
@@ -1953,34 +2090,33 @@ static u16 ppe_get_chkbase(struct iphdr *iph)
 	return chksum_base;
 }
 
-static int hnat_add_vlan_layer(struct foe_entry *entry, u16 vlan_tci, bool outer)
+static int hnat_fill_entry_vlans(struct foe_entry *entry,
+				 struct flow_offload_hw_path *hw_path)
 {
-	if (entry->bfib1.vlan_layer >= 2)
+	u16 *vlan1, *vlan2, *sp_tag;
+	unsigned int num_vlans;
+
+	if (!hw_path || hw_path->num_vlans > ARRAY_SIZE(hw_path->vlan_id))
 		return -EINVAL;
 
-	if (IS_IPV4_GRP(entry) || IS_L2_BRIDGE(entry)) {
-		if (outer) {
-			/* if the vlan is outer layer, insert it into vlan1 field */
-			entry->ipv4_hnapt.vlan2 = entry->ipv4_hnapt.vlan1;
-			entry->ipv4_hnapt.vlan1 = vlan_tci;
-		} else if (entry->bfib1.vlan_layer == 0) {
-			entry->ipv4_hnapt.vlan1 = vlan_tci;
-		} else if (entry->bfib1.vlan_layer == 1) {
-			entry->ipv4_hnapt.vlan2 = vlan_tci;
-		}
-	} else {
-		if (outer) {
-			/* if the vlan is outer layer, insert it into vlan1 field */
-			entry->ipv6_5t_route.vlan2 = entry->ipv6_5t_route.vlan1;
-			entry->ipv6_5t_route.vlan1 = vlan_tci;
-		} else if (entry->bfib1.vlan_layer == 0) {
-			entry->ipv6_5t_route.vlan1 = vlan_tci;
-		} else if (entry->bfib1.vlan_layer == 1) {
-			entry->ipv6_5t_route.vlan2 = vlan_tci;
-		}
-	}
+	if (hnat_entry_vlan_fields(entry, &vlan1, &vlan2, &sp_tag))
+		return -EINVAL;
 
-	entry->bfib1.vlan_layer++;
+	num_vlans = hw_path->num_vlans;
+	/* outer tag in vlan1, inner in vlan2, clear the unused ones */
+	*vlan1 = num_vlans > 0 ? hw_path->vlan_id[0] : 0;
+	*vlan2 = num_vlans > 1 ? hw_path->vlan_id[1] : 0;
+
+	entry->bfib1.vlan_layer = num_vlans;
+	if (!num_vlans)
+		return 0;
+
+	/* sp_tag = outer TPID (802.1Q/802.1ad); QinQ inner must be 802.1Q */
+	if (!eth_type_vlan(hw_path->vlan_proto[0]) ||
+	    (num_vlans == 2 && hw_path->vlan_proto[1] != htons(ETH_P_8021Q)))
+		return -EINVAL;
+
+	*sp_tag = ntohs(hw_path->vlan_proto[0]);
 
 	return 0;
 }
@@ -2047,7 +2183,6 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 					  struct flow_offload_hw_path *hw_path)
 {
 	entry.bfib1.psn = (hw_path->flags & BIT(DEV_PATH_PPPOE)) ? 1 : 0;
-	entry.bfib1.vlan_layer += (hw_path->flags & BIT(DEV_PATH_VLAN)) ? 1 : 0;
 	/* after enabled IS_SP_TAG_EN in NETSYS_V3, info1.vpm becomes IS_SP_TAG flag control */
 	entry.bfib1.vpm = 0;
 	entry.bfib1.cah = 1;
@@ -2064,9 +2199,6 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 			entry.l2_bridge.iblk2.mcast = 0;
 
 		entry.l2_bridge.iblk2.port_ag = 0xf;
-
-		if (entry.bfib1.vlan_layer)
-			entry.l2_bridge.sp_tag = ETH_P_8021Q;
 		break;
 	case IPV4_HNAPT:
 	case IPV4_HNAT:
@@ -2084,8 +2216,6 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 #else
 		entry.ipv4_hnapt.iblk2.port_ag = 0x3f;
 #endif
-		if (entry.bfib1.vlan_layer)
-			entry.ipv4_hnapt.sp_tag = ETH_P_8021Q;
 		break;
 	case IPV4_DSLITE:
 	case IPV4_MAP_E:
@@ -2109,8 +2239,6 @@ static struct foe_entry ppe_fill_info_blk(struct foe_entry entry,
 #else
 		entry.ipv6_5t_route.iblk2.port_ag = 0x3f;
 #endif
-		if (entry.bfib1.vlan_layer)
-			entry.ipv6_5t_route.sp_tag = ETH_P_8021Q;
 		break;
 	}
 	return entry;
@@ -2264,6 +2392,7 @@ int hnat_bind_crypto_entry(struct sk_buff *skb, const struct net_device *dev, in
 	struct flow_offload_hw_path hw_path = { .dev = (struct net_device *) dev,
 						.virt_dev = (struct net_device *) dev };
 	u16 h_proto = 0;
+	u16 h_offset;
 
 	if (!tnl_toggle) {
 		pr_notice("tnl_toggle is disable now!|\n");
@@ -2328,17 +2457,6 @@ int hnat_bind_crypto_entry(struct sk_buff *skb, const struct net_device *dev, in
 				if (hnat_priv->data->per_flow_accounting)
 					entry.ipv4_hnapt.iblk2.mibf = 1;
 
-				entry.ipv4_hnapt.vlan1 = hw_path.vlan_id;
-
-				if (skb_vlan_tagged(skb)) {
-					entry.bfib1.vlan_layer += 1;
-
-					if (entry.ipv4_hnapt.vlan1)
-						entry.ipv4_hnapt.vlan2 = skb->vlan_tci;
-					else
-						entry.ipv4_hnapt.vlan1 = skb->vlan_tci;
-				}
-
 				entry.ipv4_hnapt.sip = foe->ipv4_hnapt.sip;
 				entry.ipv4_hnapt.dip = foe->ipv4_hnapt.dip;
 				entry.ipv4_hnapt.sport = foe->ipv4_hnapt.sport;
@@ -2381,18 +2499,6 @@ int hnat_bind_crypto_entry(struct sk_buff *skb, const struct net_device *dev, in
 			fallthrough;
 		case NEXTHDR_TCP:
 			entry.ipv6_5t_route.sp_tag = htons(ETH_P_IPV6);
-			entry.ipv6_5t_route.vlan1 = hw_path.vlan_id;
-
-			if (skb_vlan_tagged(skb)) {
-				entry.bfib1.vlan_layer += 1;
-
-				if (entry.ipv6_5t_route.vlan1)
-					entry.ipv6_5t_route.vlan2 =
-						skb->vlan_tci;
-				else
-					entry.ipv6_5t_route.vlan1 =
-						skb->vlan_tci;
-			}
 
 			if (hnat_priv->data->per_flow_accounting)
 				entry.ipv6_5t_route.iblk2.mibf = 1;
@@ -2448,6 +2554,12 @@ int hnat_bind_crypto_entry(struct sk_buff *skb, const struct net_device *dev, in
 	}
 
 hnat_skip_fill_inner:
+	/* collect the skb's VLAN tags into hw_path */
+	if (hnat_get_hdr_protocol(skb, &h_offset, &hw_path) < 0)
+		return 0;
+	if (hnat_fill_entry_vlans(&entry, &hw_path))
+		return 0;
+
 	entry = ppe_fill_info_blk(entry, &hw_path);
 
 	if (IS_LAN_GRP(dev) || IS_WAN(dev)) { /* Forward to GMAC Ports */
@@ -2626,19 +2738,26 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 		if (!l2br_toggle)
 			return -1;
 		h_proto = ntohs(eth_hdr(skb)->h_proto);
-	} else if (ntohs(eth_hdr(skb)->h_proto) == ETH_P_PPP_SES) {
-		/* Apply PPPoE Bridge packet info to hw_path for further PPE entry preparing */
-		hw_path->flags |= BIT(DEV_PATH_PPPOE);
-		hw_path->pppoe_sid = ntohs(pppoe_hdr(skb)->sid);
-		if (!hnat_pppoe_bridge_allowed(skb, hw_path->pppoe_sid))
+	} else {
+		bool dev_pppoe = hw_path->flags & BIT(DEV_PATH_PPPOE);
+
+		if (hnat_get_hdr_protocol(skb, &h_offset, hw_path) < 0)
 			return -1;
-		h_proto = hnat_get_hdr_protocol(skb, &h_offset);
-	} else if (ip_hdr(skb)->version == IPVERSION_V4)
-		h_proto = ETH_P_IP;
-	else if (ip_hdr(skb)->version == IPVERSION_V6)
-		h_proto = ETH_P_IPV6;
-	else
-		return -1;
+
+		/* PPPoE session found in the skb itself, i.e. bridged PPPoE */
+		if (!dev_pppoe && (hw_path->flags & BIT(DEV_PATH_PPPOE)) &&
+		    !hnat_pppoe_bridge_allowed(skb, hw_path->pppoe_sid))
+			return -1;
+
+		/* skb->protocol may be a VLAN/PPPoE ethertype here */
+		iph = (struct iphdr *)(skb_network_header(skb) + h_offset);
+		if (iph->version == IPVERSION_V4)
+			h_proto = ETH_P_IP;
+		else if (iph->version == IPVERSION_V6)
+			h_proto = ETH_P_IPV6;
+		else
+			return -1;
+	}
 
 	switch (h_proto) {
 	case ETH_P_IP:
@@ -2659,18 +2778,6 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 				entry.ipv4_hnapt.iblk2.dscp = iph->tos;
 				if (hnat_priv->data->per_flow_accounting)
 					entry.ipv4_hnapt.iblk2.mibf = 1;
-
-				entry.ipv4_hnapt.vlan1 = hw_path->vlan_id;
-				if (skb_vlan_tagged(skb)) {
-					entry.bfib1.vlan_layer += 1;
-
-					if (entry.ipv4_hnapt.vlan1)
-						entry.ipv4_hnapt.vlan2 =
-							skb->vlan_tci;
-					else
-						entry.ipv4_hnapt.vlan1 =
-							skb->vlan_tci;
-				}
 
 				entry.ipv4_hnapt.new_sip = ntohl(iph->saddr);
 				entry.ipv4_hnapt.new_dip = ntohl(iph->daddr);
@@ -2718,7 +2825,6 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 
 				entry.bfib1.rmt = 1;
 				entry.ipv4_dslite.iblk2.dscp = iph->tos;
-				entry.ipv4_dslite.vlan1 = hw_path->vlan_id;
 				if (hnat_priv->data->per_flow_accounting)
 					entry.ipv4_dslite.iblk2.mibf = 1;
 
@@ -2775,7 +2881,6 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 				entry.ipv6_6rd.ttl = iph->ttl;
 				entry.ipv6_6rd.dscp = iph->tos;
 				entry.ipv6_6rd.per_flow_6rd_id = 1;
-				entry.ipv6_6rd.vlan1 = hw_path->vlan_id;
 				if (hnat_priv->data->per_flow_accounting)
 					entry.ipv6_6rd.iblk2.mibf = 1;
 
@@ -2806,19 +2911,6 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 
 		if (IS_IPV6_3T_ROUTE(&entry) || IS_IPV6_5T_ROUTE(&entry) || IS_IPV6_6RD(&entry)) {
 			entry.ipv6_5t_route.sp_tag = htons(ETH_P_IPV6);
-
-			entry.ipv6_5t_route.vlan1 = hw_path->vlan_id;
-
-			if (skb_vlan_tagged(skb)) {
-				entry.bfib1.vlan_layer += 1;
-
-				if (entry.ipv6_5t_route.vlan1)
-					entry.ipv6_5t_route.vlan2 =
-						skb->vlan_tci;
-				else
-					entry.ipv6_5t_route.vlan1 =
-						skb->vlan_tci;
-			}
 
 			if (hnat_priv->data->per_flow_accounting)
 				entry.ipv6_5t_route.iblk2.mibf = 1;
@@ -2961,7 +3053,6 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 
 				entry.ipv4_dslite.priority = ip6h->priority;
 				entry.ipv4_dslite.hop_limit = ip6h->hop_limit;
-				entry.ipv4_dslite.vlan1 = hw_path->vlan_id;
 				if (hnat_priv->data->per_flow_accounting)
 					entry.ipv4_dslite.iblk2.mibf = 1;
 #if defined(CONFIG_MEDIATEK_NETSYS_V3)
@@ -2987,11 +3078,6 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 				dscp = foe->ipv4_hnapt.iblk2.dscp;
 				if (hnat_priv->data->per_flow_accounting)
 					entry.ipv4_hnapt.iblk2.mibf = 1;
-
-				if (IS_GMAC1_MODE)
-					entry.ipv4_hnapt.vlan1 = 1;
-				else
-					entry.ipv4_hnapt.vlan1 = hw_path->vlan_id;
 
 				entry.ipv4_hnapt.sip = foe->ipv4_hnapt.sip;
 				entry.ipv4_hnapt.dip = foe->ipv4_hnapt.dip;
@@ -3059,17 +3145,9 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 			if (hnat_priv->data->per_flow_accounting)
 				entry.l2_bridge.iblk2.mibf = 1;
 
-			entry.l2_bridge.new_vlan1 = hw_path->vlan_id;
-			if (skb_vlan_tagged(skb)) {
-				entry.bfib1.vlan_layer += 1;
-
-				if (entry.l2_bridge.new_vlan1)
-					entry.l2_bridge.new_vlan2 =
-						skb->vlan_tci;
-				else
-					entry.l2_bridge.new_vlan1 =
-						skb->vlan_tci;
-			}
+			/* PPE rewrites the VLANs of an L2 entry: keep the skb's */
+			if (hnat_get_vlan_tags(skb, hw_path, NULL, NULL))
+				return -1;
 			break;
 		}
 		return -1;
@@ -3086,6 +3164,16 @@ static int skb_to_hnat_info(struct sk_buff *skb,
 	}
 
 hnat_entry_bind:
+	if (hnat_fill_entry_vlans(&entry, hw_path))
+		return -1;
+
+	/* MapE LAN -> WAN in GMAC1 mode keeps VID 1 in place of the device tag */
+	if (mape && IS_GMAC1_MODE) {
+		if (entry.bfib1.vlan_layer > 1)
+			return -1;
+		entry.ipv4_hnapt.vlan1 = 1;
+	}
+
 	/* Fill Info Blk*/
 	entry = ppe_fill_info_blk(entry, hw_path);
 
@@ -3329,14 +3417,11 @@ hnat_entry_bind:
 	 * by Wi-Fi whnat engine. These data and INFO2.dp will be updated and
 	 * the entry is set to BIND state in mtk_sw_nat_hook_tx().
 	 */
-	if (whnat || IS_BOND(dev)) {
+	if (whnat) {
 		/* Final check if the entry is not in UNBIND state,
 		 * we should not modify it right now.
 		 */
 		if (unlikely(foe->udib1.state != UNBIND))
-			return -1;
-
-		if (IS_BOND(dev) && (entry.bfib1.vlan_layer || entry.bfib1.vpm))
 			return -1;
 
 		spin_lock_bh(&hnat_priv->flow_entry_lock);
@@ -3414,11 +3499,10 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
 {
 	struct foe_entry *hw_entry, entry;
 	struct hnat_flow_entry *flow_entry;
-	struct vlan_hdr *vhdr;
 	struct ethhdr *eth;
 	struct nf_conn *ct;
 	enum ip_conntrack_info ctinfo;
-	u16 h_proto, h_offset = 0;
+	struct flow_offload_hw_path hw_path = {};
 
 	if (!skb_hnat_is_hashed(skb) || skb_hnat_ppe(skb) >= CFG_PPE_NUM)
 		return NF_ACCEPT;
@@ -3508,37 +3592,12 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
 		break;
 	}
 
-	entry.bfib1.vlan_layer = 0;
-
-	if (skb_vlan_tag_present(skb)) {
-		if (skb->vlan_proto != htons(ETH_P_8021Q))
-			return NF_ACCEPT;
-
-		if (hnat_add_vlan_layer(&entry, skb->vlan_tci, false))
-			return NF_ACCEPT;
-	}
-
-	h_proto = skb->protocol;
-	while (h_proto == htons(ETH_P_8021Q)) {
-		vhdr = (struct vlan_hdr *)(skb_mac_header(skb) + ETH_HLEN + h_offset);
-		if (hnat_add_vlan_layer(&entry, ntohs(vhdr->h_vlan_TCI), false)) {
-			if (debug_level >= 7)
-				printk_ratelimited(KERN_WARNING
-						   "Unsupported PPE VLAN layer%d in WiFiTx\n",
-						   entry.bfib1.vlan_layer + 1);
-			return NF_ACCEPT;
-		}
-		h_proto = vhdr->h_vlan_encapsulated_proto;
-		h_offset += VLAN_HLEN;
-	}
-
-	if (entry.bfib1.vlan_layer) {
-		if (IS_IPV4_GRP(&entry) || IS_L2_BRIDGE(&entry))
-			entry.ipv4_hnapt.sp_tag = ETH_P_8021Q;
-		else if (IS_IPV6_GRP(&entry))
-			entry.ipv6_5t_route.sp_tag = ETH_P_8021Q;
-		else
-			return NF_ACCEPT;
+	/* rebuild the entry's VLANs from the skb's own tags */
+	if (hnat_get_vlan_tags(skb, &hw_path, NULL, NULL) ||
+	    hnat_fill_entry_vlans(&entry, &hw_path)) {
+		if (debug_level >= 7)
+			pr_warn_ratelimited("Unsupported PPE VLAN layer in WiFiTx\n");
+		return NF_ACCEPT;
 	}
 
 	/* MT7622 wifi hw_nat not support QoS */
@@ -4048,41 +4107,125 @@ static unsigned int mtk_hnat_accel_type(struct sk_buff *skb)
 
 static void mtk_hnat_dscp_update(struct sk_buff *skb, struct foe_entry *entry)
 {
-	struct iphdr *iph;
-	struct ethhdr *eth;
-	struct ipv6hdr *ip6h;
-	bool flag = false;
+	u8 old_inner_dsfield = 0, new_inner_dsfield = 0;
+	struct hnat_info_blk2 *iblk2;
+	u8 new_dsfield, old_dsfield;
+	u16 h_proto, h_offset = 0;
+	struct iphdr *inner_iph;
+	bool relearn;
+	void *nh;
+	int ret;
 
-	eth = eth_hdr(skb);
-	switch (ntohs(eth->h_proto)) {
+	ret = hnat_get_hdr_protocol(skb, &h_offset, NULL);
+	if (ret < 0)
+		return;
+	h_proto = ret;
+	nh = skb_network_header(skb) + h_offset;
+
+	spin_lock_bh(&hnat_priv->entry_lock);
+
+	if (!entry_hnat_is_bound(entry))
+		goto unlock;
+
+	/* follow skb_to_hnat_info() and mtk_464xlat_fill_l3() */
+	switch (h_proto) {
 	case ETH_P_IP:
-		iph = ip_hdr(skb);
-		if (IS_IPV4_GRP(entry) && entry->ipv4_hnapt.iblk2.dscp != iph->tos) {
-			entry->ipv4_hnapt.iblk2.dscp = iph->tos;
-			flag = true;
+		new_dsfield = ipv4_get_dsfield(nh);
+		if (IS_IPV4_GRP(entry)) {
+			iblk2 = &entry->ipv4_hnapt.iblk2;
+			old_dsfield = iblk2->dscp;
+		} else if (IS_IPV4_DSLITE(entry) || IS_IPV4_MAPE(entry)) {
+			/* DS-Lite/MAP-E WAN->LAN */
+			iblk2 = &entry->ipv4_dslite.iblk2;
+			old_dsfield = iblk2->dscp;
+		} else if (IS_IPV6_6RD(entry)) {
+			/* 6RD LAN->WAN, 464XLAT WAN->LAN */
+			iblk2 = &entry->ipv6_6rd.iblk2;
+			old_dsfield = entry->ipv6_6rd.dscp;
+		} else {
+			goto unlock;
 		}
 		break;
 	case ETH_P_IPV6:
-		ip6h = ipv6_hdr(skb);
-		if ((IS_IPV6_3T_ROUTE(entry) || IS_IPV6_5T_ROUTE(entry)) &&
-			(entry->ipv6_5t_route.iblk2.dscp !=
-			(ip6h->priority << 4 | (ip6h->flow_lbl[0] >> 4)))) {
-			entry->ipv6_5t_route.iblk2.dscp =
-				(ip6h->priority << 4 | (ip6h->flow_lbl[0] >> 4));
-			flag = true;
+		new_dsfield = ipv6_get_dsfield(nh);
+		if (IS_IPV6_3T_ROUTE(entry) || IS_IPV6_5T_ROUTE(entry) ||
+		    IS_IPV6_HNAPT(entry) || IS_IPV6_HNAT(entry) ||
+		    IS_IPV6_6RD(entry)) {
+			/* 6RD here is WAN->LAN */
+			iblk2 = &entry->ipv6_5t_route.iblk2;
+			old_dsfield = iblk2->dscp;
+		} else if (IS_IPV4_DSLITE(entry) || IS_IPV4_MAPE(entry)) {
+			/* DS-Lite/MAP-E LAN->WAN, 464XLAT LAN->WAN */
+			iblk2 = &entry->ipv4_dslite.iblk2;
+			/* reverse of ppe_fill_flow_lbl() */
+			old_dsfield = entry->ipv4_dslite.priority << 4 |
+				      entry->ipv4_dslite.flow_lbl[2] >> 4;
+
+			/* MAP-E also records the inner IPv4 header */
+			if (IS_IPV4_MAPE(entry) &&
+			    ((struct ipv6hdr *)nh)->nexthdr == NEXTHDR_IPIP) {
+				old_inner_dsfield = iblk2->dscp;
+				inner_iph = (struct iphdr *)(skb_inner_network_header(skb) +
+							     h_offset);
+				new_inner_dsfield = ipv4_get_dsfield(inner_iph);
+			}
+		} else {
+			goto unlock;
 		}
 		break;
 	default:
-		return;
+		goto unlock;
 	}
 
-	if (flag) {
-		if (debug_level >= 7)
-			pr_info("%s %d update entry idx=%d\n", __func__, __LINE__,
-			skb_hnat_entry(skb));
-		/* clear HWNAT cache */
-		hnat_cache_clr(skb_hnat_ppe(skb));
+	if (new_dsfield == old_dsfield && new_inner_dsfield == old_inner_dsfield)
+		goto unlock;
+
+	/* re-learn WiFi entry so that TID follows the new DSCP,
+	 * ECN alone doesn't matter
+	 */
+	relearn = iblk2->winfoi &&
+		  inet_dsfield_to_dscp(new_dsfield) != inet_dsfield_to_dscp(old_dsfield);
+	if (relearn) {
+		__entry_delete(entry);
+	} else {
+		if (h_proto == ETH_P_IP && IS_IPV6_6RD(entry)) {
+			/* 6RD LAN->WAN, 464XLAT WAN->LAN */
+			entry->ipv6_6rd.dscp = new_dsfield;
+			/* only V2 and older keep the TOS inside the checksum base */
+			if (hnat_priv->data->version <= MTK_HNAT_V2)
+				entry->ipv6_6rd.hdr_chksum = ppe_get_chkbase(nh);
+		} else if (h_proto == ETH_P_IPV6 &&
+			   (IS_IPV4_DSLITE(entry) || IS_IPV4_MAPE(entry))) {
+			/* DS-Lite/MAP-E LAN->WAN, 464XLAT LAN->WAN */
+			entry->ipv4_dslite.priority = ((struct ipv6hdr *)nh)->priority;
+			ppe_fill_flow_lbl(entry, nh);
+			/* MAP-E inner IPv4 header */
+			if (new_inner_dsfield != old_inner_dsfield)
+				iblk2->dscp = new_inner_dsfield;
+		} else {
+			iblk2->dscp = new_dsfield;
+		}
+		dma_wmb();
 	}
+
+	spin_unlock_bh(&hnat_priv->entry_lock);
+
+	if (debug_level >= 7)
+		pr_info("%s %d update entry idx=%d\n", __func__, __LINE__,
+			skb_hnat_entry(skb));
+
+	if (relearn && debug_level >= 2)
+		pr_info("[%s]: delete entry idx = %d_%d, dscp %d->%d, re-learn TID\n",
+			__func__, skb_hnat_ppe(skb), skb_hnat_entry(skb),
+			FIELD_GET(INET_DSCP_MASK, old_dsfield),
+			FIELD_GET(INET_DSCP_MASK, new_dsfield));
+
+	/* clear HWNAT cache */
+	hnat_cache_clr(skb_hnat_ppe(skb));
+	return;
+
+unlock:
+	spin_unlock_bh(&hnat_priv->entry_lock);
 }
 
 static int mtk_464xlat_fill_mac(struct foe_entry *entry, struct sk_buff *skb,
@@ -4500,8 +4643,9 @@ static unsigned int mtk_hnat_nf_post_routing(
 		}
 
 #if 1 /* ASUS: skip specific VID */
-		if (check_vlan(hw_path.vlan_id)) {
-			break;
+		for (int i = 0; i < hw_path.num_vlans; i++) {
+			if (check_vlan(hw_path.vlan_id[i]))
+				break;
 		}
 		if (skb->vlan_tci) {
 			u16 vid = skb->vlan_tci & VLAN_VID_MASK;
@@ -4577,15 +4721,15 @@ static unsigned int mtk_hnat_nf_post_routing(
 		if (fn && !mtk_hnat_accel_type(skb))
 			break;
 
-		/* update dscp for qos */
-		mtk_hnat_dscp_update(skb, entry);
-
 		/* update mcast timestamp*/
 		if (hnat_priv->data->version == MTK_HNAT_V1_3 &&
 		    mcast_hook_toggle && entry->bfib1.sta == 1)
 			entry->ipv4_hnapt.m_timestamp = foe_timestamp(hnat_priv, true);
 
 		if (entry_hnat_is_bound(entry)) {
+			/* update dscp for qos */
+			mtk_hnat_dscp_update(skb, entry);
+
 			/* unshare if head cloned so sibling clones keep their hnat info */
 			if (!skb_shared(skb) && !skb_cow_head(skb, 0))
 				memset(skb_hnat_info(skb), 0, sizeof(struct hnat_desc));
@@ -4988,4 +5132,3 @@ int mtk_hqos_ptype_cb(struct sk_buff *skb, struct net_device *dev,
 
 	return 0;
 }
-
