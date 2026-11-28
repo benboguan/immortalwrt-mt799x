@@ -1,0 +1,18 @@
+diff --git a/mt_wifi/chip/mcu/cmm_fw_uni_event.c b/mt_wifi/chip/mcu/cmm_fw_uni_event.c
+index 944b56d..933cf56 100644
+--- a/mt_wifi/chip/mcu/cmm_fw_uni_event.c
++++ b/mt_wifi/chip/mcu/cmm_fw_uni_event.c
+@@ -130,8 +130,11 @@ VOID UniCmdStaRecRsp(struct cmd_msg *msg, char *payload, UINT16 payload_len)
+ 
+ 	if (UniCmdResult->u4Status != 0 || (UniCmdResult->u2CID != msg->attr.type)) {
+ 		MTWF_DBG(NULL, DBG_CAT_FW, CATFW_STAREC, DBG_LVL_WARN,
+-			"BUG::UniCmdResult.u4Status = 0x%x cid: = 0x%x\n",
+-			UniCmdResult->u4Status, UniCmdResult->u2CID);
++			"BUG::UniCmdResult.u4Status = 0x%x cid: = 0x%x (bss %d, wcid %d, feature 0x%llx)\n",
++			UniCmdResult->u4Status, UniCmdResult->u2CID,
++			StaRecCfg ? (int)StaRecCfg->ucBssIndex : -1,
++			StaRecCfg ? (int)StaRecCfg->u2WlanIdx : -1,
++			StaRecCfg ? (unsigned long long)StaRecCfg->u8EnableFeature : 0ULL);
+ 	} else {
+ 		if (StaRecCfg) {
+ 			RTMP_ADAPTER *pAd = (RTMP_ADAPTER *)msg->priv;

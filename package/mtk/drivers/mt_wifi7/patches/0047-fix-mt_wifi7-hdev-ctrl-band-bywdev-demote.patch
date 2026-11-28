@@ -1,0 +1,26 @@
+diff --git a/mt_wifi/hw_ctrl/hdev_ctrl.c b/mt_wifi/hw_ctrl/hdev_ctrl.c
+index 82cea39..d19af27 100644
+--- a/mt_wifi/hw_ctrl/hdev_ctrl.c
++++ b/mt_wifi/hw_ctrl/hdev_ctrl.c
+@@ -639,11 +639,16 @@ UCHAR HcGetBandByWdev(struct wifi_dev *wdev)
+ 
+ 	if (ctrl && ctrl->hdev_ops && ctrl->hdev_ops->get_link)
+ 		return ctrl->hdev_ops->get_link(wdev);
+-	else {
+-		MTWF_DBG(NULL, DBG_CAT_HW, CATHW_HDEV_CTRL, DBG_LVL_ERROR,
+-			"no hook api, please check.\n");
+-		return 0;
+-	}
++
++	/* Asked before the wdev is bound to an adapter (wdev->sys_handle == NULL),
++	 * or on an inf type that does not hook .get_link. Old code printed one
++	 * ERROR per call; MT799x hits this ~100 times per boot during VAP init.
++	 * Keep the historical "band 0" answer, demote the trace to DEBUG.
++	 */
++	MTWF_DBG(NULL, DBG_CAT_HW, CATHW_HDEV_CTRL, DBG_LVL_DEBUG,
++		"no hook api (ctrl %s, wdev_idx %d), fallback band 0\n",
++		ctrl ? "valid" : "null", wdev ? (int)wdev->wdev_idx : -1);
++	return 0;
+ }
+ 
+ /*
